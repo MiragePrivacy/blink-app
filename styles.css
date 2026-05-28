@@ -992,35 +992,49 @@ tbody tr:last-child td { border-bottom: none; }
   .panel-head {
     padding: 12px;
   }
+  /* seg + Custom share one tidy toolbar row under the title */
   .panel-head .seg {
-    flex: 1 1 100%;
-    width: 100%;
+    flex: 1 1 auto;
+    width: auto;
   }
   .seg button {
     flex: 1 0 auto;
     padding: 6px 10px;
   }
   .range-custom-btn {
-    flex: 1 1 100%;
-    width: 100%;
+    flex: 0 0 auto;
+    width: auto;
+    padding: 0 12px;
   }
+  /* custom range: clean full-width stack, two action buttons on one row */
   .custom-range {
-    padding: 10px 12px;
+    padding: 12px;
+    gap: 8px;
   }
-  .range-mode,
-  .range-fields,
-  .range-fields input,
-  .range-apply,
-  .range-clear {
+  .range-mode {
+    flex: 0 0 auto;
     width: 100%;
-    flex-basis: 100%;
   }
   .range-fields {
+    flex: 1 1 100%;
+    width: 100%;
     flex-direction: column;
     align-items: stretch;
   }
+  .range-fields input {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+  }
   .range-summary {
+    flex: 1 1 100%;
+    width: 100%;
     white-space: normal;
+  }
+  .range-apply,
+  .range-clear {
+    flex: 1 1 0;
+    width: auto;
   }
   .chart-wrap {
     height: 200px;
