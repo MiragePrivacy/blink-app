@@ -92,6 +92,14 @@ const chains = [
     explorer_url: 'https://etherscan.io',
     icon_key: 'ethereum',
   },
+  {
+    chain_id: 100,
+    name: 'Gnosis',
+    short_name: 'GNO',
+    native_symbol: 'xDAI',
+    explorer_url: 'https://gnosisscan.io',
+    icon_key: 'gnosis',
+  },
 ];
 
 const chainState = {
@@ -168,6 +176,39 @@ function resetRecentState() {
   recentState.hasMore = false;
 }
 
+function defaultSqlForChain(chainId = selectedChainId()) {
+  return `SELECT
+  chain_id,
+  block_number,
+  address,
+  compiler_version,
+  language,
+  n_code_bytes,
+  is_verified
+FROM contract_metadata
+WHERE chain_id = ${chainId}
+ORDER BY block_number DESC, create_index DESC
+LIMIT 50`;
+}
+
+function syncDefaultSqlToChain(force = false) {
+  const editor = document.getElementById('query-editor');
+  if (!editor) return false;
+  const chainScopedDefaultPattern = /^SELECT\s+chain_id,\s+block_number,\s+address,\s+compiler_version,\s+language,\s+n_code_bytes,\s+is_verified\s+FROM\s+contract_metadata\s+WHERE\s+chain_id\s+=\s+\d+\s+ORDER\s+BY\s+block_number\s+DESC,\s+create_index\s+DESC\s+LIMIT\s+50\s*$/i;
+  const legacyDefaultPattern = /^SELECT\s+block_number,\s+address,\s+compiler_version,\s+language,\s+n_code_bytes,\s+is_verified\s+FROM\s+contract_metadata\s+ORDER\s+BY\s+block_number\s+DESC,\s+create_index\s+DESC\s+LIMIT\s+50\s*$/i;
+  const currentSql = editor.value.trim();
+  if (
+    force ||
+    !currentSql ||
+    chainScopedDefaultPattern.test(currentSql) ||
+    legacyDefaultPattern.test(currentSql)
+  ) {
+    editor.value = defaultSqlForChain();
+    return true;
+  }
+  return false;
+}
+
 function clearCanvasMessage(id, message) {
   const canvas = document.getElementById(id);
   if (!canvas) return;
@@ -206,22 +247,10 @@ async function capture(context, work) {
 
 function chainIcon(key) {
   if (key === 'ethereum') {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 2 5.8 12.3 12 9.3l6.2 3L12 2Z" />
-        <path d="M12 10.7 5.8 13.6 12 22l6.2-8.4-6.2-2.9Z" />
-      </svg>
-    `;
+    return `<img src="./assets/ethereum.svg" alt="" aria-hidden="true" />`;
   }
   if (key === 'gnosis') {
-    return `
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4.1 13.2C4.1 8.4 7.6 5 12 5s7.9 3.4 7.9 8.2c0 3.9-2.8 6.8-7.9 6.8s-7.9-2.9-7.9-6.8Z" fill="none" stroke="currentColor" stroke-width="1.8" />
-        <path d="M8 10.1a2.2 2.2 0 0 1 3.1 3.1L7.7 9.8c.1.1.2.2.3.3Z" fill="currentColor" />
-        <path d="M16 10.1a2.2 2.2 0 0 0-3.1 3.1l3.4-3.4c-.1.1-.2.2-.3.3Z" fill="currentColor" />
-        <path d="M10 15.6h4l-2 2-2-2Z" fill="currentColor" />
-      </svg>
-    `;
+    return `<img src="./assets/gnosis.svg" alt="" aria-hidden="true" />`;
   }
   return '<span class="chain-initial">•</span>';
 }
@@ -245,6 +274,8 @@ function selectChain(chainId) {
   clearCharts();
   renderChainDropdown();
   updateChainMeta();
+  syncDefaultSqlToChain();
+  clearQueryResult('run query for selected chain');
   setChainMenuOpen(false);
   refresh();
 }
@@ -301,6 +332,7 @@ async function loadChains() {
   }
   renderChainDropdown();
   updateChainMeta();
+  syncDefaultSqlToChain();
 }
 
 function fmtNumber(n) {
@@ -828,6 +860,17 @@ function renderQueryResult(data) {
   }
 }
 
+function clearQueryResult(message = 'no query results') {
+  const status = document.getElementById('query-status');
+  if (status) status.textContent = 'ready';
+  const table = document.getElementById('query-table');
+  if (!table) return;
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
+  if (thead) thead.innerHTML = '';
+  if (tbody) tbody.innerHTML = `<tr><td class="query-empty">${escapeHtml(message)}</td></tr>`;
+}
+
 async function runSqlQuery() {
   const button = document.getElementById('query-run');
   const status = document.getElementById('query-status');
@@ -838,6 +881,7 @@ async function runSqlQuery() {
     const data = await postJson('/api/query', {
       sql: editor.value,
       limit: 200,
+      chain_id: selectedChainId(),
     });
     renderQueryResult(data);
     status.textContent = `${fmtFull(data.row_count)} rows · ${fmtFull(data.elapsed_ms)} ms`;

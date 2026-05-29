@@ -188,6 +188,7 @@
       </div>
       <div class="query-body">
         <textarea id="query-editor" class="query-editor" spellcheck="false">SELECT
+  chain_id,
   block_number,
   address,
   compiler_version,
@@ -195,6 +196,7 @@
   n_code_bytes,
   is_verified
 FROM contract_metadata
+WHERE chain_id = 1
 ORDER BY block_number DESC, create_index DESC
 LIMIT 50</textarea>
         <div class="table-wrap query">
