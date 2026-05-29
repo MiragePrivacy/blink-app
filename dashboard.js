@@ -83,10 +83,24 @@ const recentState = {
   loading: false,
 };
 
-const API_BASE =
-  location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-    ? 'http://127.0.0.1:8080'
-    : 'https://blink-api.mirageprivacy.com';
+const chains = [
+  {
+    chain_id: 1,
+    name: 'Ethereum',
+    short_name: 'ETH',
+    native_symbol: 'ETH',
+    explorer_url: 'https://etherscan.io',
+    icon_key: 'ethereum',
+  },
+];
+
+const chainState = {
+  chains,
+  selectedId: Number(localStorage.getItem('blink.chain_id')) || 1,
+  menuOpen: false,
+};
+
+const API_BASE = 'https://blink-api.mirageprivacy.com';
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
@@ -95,8 +109,14 @@ function apiUrl(path) {
 async function fetchJson(path) {
   const url = apiUrl(path);
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`${path} → ${r.status}`);
-  return r.json();
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const err = new Error(`request failed (${r.status})`);
+    err.path = path;
+    err.detail = data.error || `${path} → ${r.status}`;
+    throw err;
+  }
+  return data;
 }
 
 async function postJson(path, payload) {
@@ -107,8 +127,180 @@ async function postJson(path, payload) {
     body: JSON.stringify(payload),
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || `${path} → ${r.status}`);
+  if (!r.ok) {
+    const err = new Error(`request failed (${r.status})`);
+    err.path = path;
+    err.detail = data.error || `${path} → ${r.status}`;
+    throw err;
+  }
   return data;
+}
+
+function selectedChainId() {
+  const selected = chainState.selectedId || 1;
+  if (chainState.chains.some(chain => Number(chain.chain_id) === selected)) return selected;
+  return Number(chainState.chains[0]?.chain_id || chains[0].chain_id || 1);
+}
+
+function activeChain() {
+  return (
+    chainState.chains.find(chain => Number(chain.chain_id) === selectedChainId()) ||
+    chainState.chains[0] ||
+    chains[0]
+  );
+}
+
+function chainPath(path, params = {}) {
+  const query = new URLSearchParams(params);
+  query.set('chain_id', String(selectedChainId()));
+  return `${path}?${query.toString()}`;
+}
+
+function explorerAddressUrl(address) {
+  const base = (activeChain().explorer_url || chains[0].explorer_url).replace(/\/$/, '');
+  return `${base}/address/${encodeURIComponent(address)}`;
+}
+
+function resetRecentState() {
+  recentState.page = 0;
+  recentState.cursors = [null];
+  recentState.nextCursor = null;
+  recentState.hasMore = false;
+}
+
+function clearCanvasMessage(id, message) {
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = palette.faint;
+  ctx.font = '11px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+}
+
+function clearCharts(message = 'loading chain data') {
+  Object.keys(charts).forEach(key => {
+    if (charts[key]) charts[key].destroy();
+    charts[key] = null;
+  });
+  clearCanvasMessage('chart-deploys', message);
+  clearCanvasMessage('chart-verified', message);
+  clearCanvasMessage('chart-sizes', message);
+  clearCanvasMessage('chart-compilers', message);
+  clearCanvasMessage('chart-standards', message);
+}
+
+function logDashboardError(context, err) {
+  console.error(`[blink] ${context}`, err.detail || err.message, err);
+}
+
+async function capture(context, work) {
+  try {
+    return await work;
+  } catch (err) {
+    logDashboardError(context, err);
+    return null;
+  }
+}
+
+function chainIcon(key) {
+  if (key === 'ethereum') {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2 5.8 12.3 12 9.3l6.2 3L12 2Z" />
+        <path d="M12 10.7 5.8 13.6 12 22l6.2-8.4-6.2-2.9Z" />
+      </svg>
+    `;
+  }
+  if (key === 'gnosis') {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4.1 13.2C4.1 8.4 7.6 5 12 5s7.9 3.4 7.9 8.2c0 3.9-2.8 6.8-7.9 6.8s-7.9-2.9-7.9-6.8Z" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <path d="M8 10.1a2.2 2.2 0 0 1 3.1 3.1L7.7 9.8c.1.1.2.2.3.3Z" fill="currentColor" />
+        <path d="M16 10.1a2.2 2.2 0 0 0-3.1 3.1l3.4-3.4c-.1.1-.2.2-.3.3Z" fill="currentColor" />
+        <path d="M10 15.6h4l-2 2-2-2Z" fill="currentColor" />
+      </svg>
+    `;
+  }
+  return '<span class="chain-initial">•</span>';
+}
+
+function setChainMenuOpen(open) {
+  chainState.menuOpen = open;
+  const picker = document.getElementById('chain-picker');
+  const trigger = document.getElementById('chain-trigger');
+  if (picker) picker.classList.toggle('open', open);
+  if (trigger) trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function selectChain(chainId) {
+  if (chainId === selectedChainId()) {
+    setChainMenuOpen(false);
+    return;
+  }
+  chainState.selectedId = chainId;
+  localStorage.setItem('blink.chain_id', String(chainId));
+  resetRecentState();
+  clearCharts();
+  renderChainDropdown();
+  updateChainMeta();
+  setChainMenuOpen(false);
+  refresh();
+}
+
+function renderChainDropdown() {
+  const trigger = document.getElementById('chain-trigger');
+  const icon = document.getElementById('active-chain-icon');
+  const label = document.getElementById('active-chain-label');
+  const menu = document.getElementById('chain-menu');
+  if (!trigger || !icon || !label || !menu) return;
+
+  const active = activeChain();
+  icon.innerHTML = chainIcon(active.icon_key);
+  label.textContent = active.short_name || active.name || `chain ${selectedChainId()}`;
+  trigger.title = active.name || `chain ${selectedChainId()}`;
+  menu.innerHTML = '';
+
+  for (const chain of chainState.chains) {
+    const chainId = Number(chain.chain_id);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = chainId === selectedChainId() ? 'chain-option active' : 'chain-option';
+    button.role = 'option';
+    button.setAttribute('aria-selected', chainId === selectedChainId() ? 'true' : 'false');
+    button.dataset.chainId = String(chainId);
+    button.title = chain.name || `chain ${chainId}`;
+    button.innerHTML = `
+      <span class="chain-icon">${chainIcon(chain.icon_key)}</span>
+      <span class="chain-option-text">
+        <span class="chain-option-name">${escapeHtml(chain.name || `chain ${chainId}`)}</span>
+        <span class="chain-option-id">${escapeHtml(chain.short_name || chain.native_symbol || chainId)}</span>
+      </span>
+    `;
+    button.addEventListener('click', () => selectChain(chainId));
+    menu.appendChild(button);
+  }
+}
+
+function updateChainMeta() {
+  const chain = activeChain();
+  document.title = `blink · ${(chain.name || 'contracts').toLowerCase()} contract intel`;
+}
+
+async function loadChains() {
+  const data = await capture('chains', fetchJson('/api/chains'));
+  const apiChains = Array.isArray(data?.chains) && data.chains.length ? data.chains : chains;
+  chainState.chains = apiChains;
+  const defaultId = Number(data?.default_chain_id || chains[0].chain_id);
+  const requestedId = chainState.selectedId || defaultId;
+  const selectedExists = apiChains.some(chain => Number(chain.chain_id) === requestedId);
+  if (!selectedExists) {
+    chainState.selectedId = defaultId;
+    localStorage.setItem('blink.chain_id', String(defaultId));
+  }
+  renderChainDropdown();
+  updateChainMeta();
 }
 
 function fmtNumber(n) {
@@ -181,7 +373,8 @@ function renderRuntimeStatus(runtime) {
       runtime.tail_last_error &&
       isoAgeMs(runtime.tail_last_error_at) < isoAgeMs(runtime.tail_last_ok_at);
     if (tailErrorIsLatest) {
-      setStatus('error', `tail error · ${shortError(runtime.tail_last_error)}`);
+      console.warn('[blink] tail delayed', runtime.tail_last_error);
+      setStatus('sync', 'tail delayed');
       return;
     }
     if (runtime.tail_last_ok_at && isoAgeMs(runtime.tail_last_ok_at) <= freshMs) {
@@ -190,7 +383,8 @@ function renderRuntimeStatus(runtime) {
       return;
     }
     if (runtime.tail_last_error) {
-      setStatus('error', `tail error · ${shortError(runtime.tail_last_error)}`);
+      console.warn('[blink] tail delayed', runtime.tail_last_error);
+      setStatus('sync', 'tail delayed');
       return;
     }
     setStatus('sync', runtime.tail_running ? 'tailing latest contracts' : 'tail starting');
@@ -201,7 +395,7 @@ function renderRuntimeStatus(runtime) {
 }
 
 async function loadStats() {
-  const s = await fetchJson('/api/stats');
+  const s = await fetchJson(chainPath('/api/stats'));
   document.getElementById('m-total').textContent = fmtFull(s.total_contracts);
   document.getElementById('m-block-range').textContent =
     s.first_block === 0 && s.last_block === 0
@@ -221,8 +415,19 @@ async function loadStats() {
   document.getElementById('m-last-block-time').textContent = `updated ${fmtTime(s.last_updated)}`;
 }
 
+function renderStatsUnavailable() {
+  document.getElementById('m-total').textContent = '—';
+  document.getElementById('m-block-range').textContent = 'data unavailable';
+  document.getElementById('m-verified').textContent = '—';
+  document.getElementById('m-verified-pct').textContent = 'verification unavailable';
+  document.getElementById('m-unverified').textContent = '—';
+  document.getElementById('m-coverage').textContent = '—';
+  document.getElementById('m-last-block').textContent = '—';
+  document.getElementById('m-last-block-time').textContent = 'waiting for API';
+}
+
 async function loadDeploys() {
-  const data = await fetchJson(`/api/deploys-over-time?bucket=${buckets.deploys}`);
+  const data = await fetchJson(chainPath('/api/deploys-over-time', { bucket: buckets.deploys }));
   const points = data.buckets.map(b => ({ x: b.timestamp, y: b.count }));
   const ctx = document.getElementById('chart-deploys');
   if (charts.deploys) charts.deploys.destroy();
@@ -255,7 +460,7 @@ async function loadDeploys() {
 }
 
 async function loadVerified() {
-  const data = await fetchJson(`/api/verified-ratio?bucket=${buckets.verified}`);
+  const data = await fetchJson(chainPath('/api/verified-ratio', { bucket: buckets.verified }));
   const all = data.buckets || [];
 
   const ctx = document.getElementById('chart-verified');
@@ -347,7 +552,7 @@ async function loadVerified() {
 }
 
 async function loadSizes() {
-  const data = await fetchJson('/api/bytecode-sizes');
+  const data = await fetchJson(chainPath('/api/bytecode-sizes'));
   const labels = data.bins.map(b => b.label || `${fmtBytes(b.size_min)}-${fmtBytes(b.size_max)}`);
   const shortLabels = labels;
   const counts = data.bins.map(b => b.count);
@@ -404,7 +609,7 @@ async function loadSizes() {
 }
 
 async function loadLanguages() {
-  const data = await fetchJson('/api/languages');
+  const data = await fetchJson(chainPath('/api/languages'));
   const langs = data.languages || [];
   const total = langs.reduce((a, b) => a + b.count, 0);
   if (total === 0) {
@@ -424,7 +629,7 @@ async function loadLanguages() {
 }
 
 async function loadStandards() {
-  const data = await fetchJson('/api/standards');
+  const data = await fetchJson(chainPath('/api/standards'));
   const total = data.total_decoded || 0;
   const cov = document.getElementById('standards-coverage');
   cov.textContent = total > 0 ? `${fmtNumber(total)} decoded` : 'no data';
@@ -513,7 +718,7 @@ async function loadStandards() {
 }
 
 async function loadCompilers() {
-  const data = await fetchJson('/api/compilers?limit=12');
+  const data = await fetchJson(chainPath('/api/compilers', { limit: 12 }));
   if (!data.compilers.length) {
     const ctx = document.getElementById('chart-compilers');
     if (charts.compilers) charts.compilers.destroy();
@@ -657,6 +862,7 @@ async function loadRecent() {
       params.set('before_block', String(cursor.block_number));
       params.set('before_create_index', String(cursor.create_index));
     }
+    params.set('chain_id', String(selectedChainId()));
     const data = await fetchJson(`/api/recent?${params.toString()}`);
     const tbody = document.querySelector('#recent-table tbody');
     tbody.innerHTML = '';
@@ -671,7 +877,7 @@ async function loadRecent() {
         : '<span class="dim-text">—</span>';
       tr.innerHTML = `
         <td>${fmtFull(c.block_number)}</td>
-        <td><a class="address" href="https://etherscan.io/address/${encodeURIComponent(c.address)}" target="_blank" rel="noopener" title="${safeAddress}">${escapeHtml(shortAddr(c.address))}</a></td>
+        <td><a class="address" href="${explorerAddressUrl(c.address)}" target="_blank" rel="noopener" title="${safeAddress}">${escapeHtml(shortAddr(c.address))}</a></td>
         <td>${name}</td>
         <td>${safeCompiler}</td>
         <td>${fmtBytes(c.n_code_bytes)}</td>
@@ -688,6 +894,13 @@ async function loadRecent() {
     const end = recentState.page * recentState.limit + data.contracts.length;
     document.getElementById('recent-range').textContent =
       data.contracts.length === 0 ? '0' : `${fmtFull(start)} – ${fmtFull(end)}`;
+  } catch (err) {
+    logDashboardError('recent deployments', err);
+    const tbody = document.querySelector('#recent-table tbody');
+    tbody.innerHTML = '<tr><td colspan="6" class="query-empty">recent deployments unavailable</td></tr>';
+    recentState.hasMore = false;
+    recentState.nextCursor = null;
+    document.getElementById('recent-range').textContent = '—';
   } finally {
     recentState.loading = false;
     updateRecentPager();
@@ -701,25 +914,22 @@ function updateRecentPager() {
 }
 
 async function refresh() {
-  try {
-    const [runtime] = await Promise.all([
-      fetchJson('/api/runtime'),
-      loadStats(),
-      loadDeploys(),
-      loadVerified(),
-      loadSizes(),
-      loadCompilers(),
-      loadLanguages(),
-      loadStandards(),
-      loadRecent(),
-    ]);
-    const ts = new Date().toISOString().slice(11, 19) + ' UTC';
-    renderRuntimeStatus(runtime);
-    document.getElementById('footer-refresh').textContent = `last refresh ${ts}`;
-  } catch (err) {
-    console.error(err);
-    setStatus('error', err.message);
-  }
+  const results = await Promise.all([
+    capture('runtime', fetchJson('/api/runtime')),
+    capture('stats', loadStats()),
+    capture('deployments chart', loadDeploys()),
+    capture('verification chart', loadVerified()),
+    capture('bytecode size chart', loadSizes()),
+    capture('compiler chart', loadCompilers()),
+    capture('language summary', loadLanguages()),
+    capture('standards chart', loadStandards()),
+    loadRecent(),
+  ]);
+  const runtime = results[0];
+  if (results[1] === null) renderStatsUnavailable();
+  const ts = new Date().toISOString().slice(11, 19) + ' UTC';
+  renderRuntimeStatus(runtime);
+  document.getElementById('footer-refresh').textContent = `last refresh ${ts}`;
 }
 
 function attachBucketToggles() {
@@ -764,8 +974,30 @@ function attachQueryRunner() {
   });
 }
 
+function attachChainDropdown() {
+  const picker = document.getElementById('chain-picker');
+  const trigger = document.getElementById('chain-trigger');
+  if (!picker || !trigger) return;
+
+  trigger.addEventListener('click', event => {
+    event.stopPropagation();
+    setChainMenuOpen(!chainState.menuOpen);
+  });
+
+  document.addEventListener('click', event => {
+    if (!picker.contains(event.target)) setChainMenuOpen(false);
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') setChainMenuOpen(false);
+  });
+}
+
 attachBucketToggles();
 attachRecentPager();
 attachQueryRunner();
-refresh();
+attachChainDropdown();
+renderChainDropdown();
+updateChainMeta();
+loadChains().finally(refresh);
 setInterval(refresh, REFRESH_MS);

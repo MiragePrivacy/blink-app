@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>blink · ethereum contract intel</title>
+  <title>blink · contract intel</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Real-time Ethereum smart contract deployment intelligence — verification status, bytecode size, compiler distribution." />
+  <meta name="description" content="Real-time smart contract deployment intelligence — verification status, bytecode size, compiler distribution." />
   <link rel="icon" type="image/svg+xml" href="./assets/logo.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <link rel="stylesheet" href="./styles.css?v=14" />
-  <script src="./dashboard.js?v=16" defer></script>
+  <link rel="stylesheet" href="./styles.css?v=16" />
+  <script src="./dashboard.js?v=18" defer></script>
 </head>
 <body>
   <nav class="topbar">
@@ -21,7 +21,14 @@
         <img src="./assets/logo.svg" alt="" aria-hidden="true" />
       </div>
       <span class="wordmark">BLINK</span>
-      <span class="meta-tag">ethereum · mainnet</span>
+      <div class="chain-picker" id="chain-picker">
+        <button class="chain-trigger" id="chain-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span class="chain-icon" id="active-chain-icon"></span>
+          <span class="chain-name" id="active-chain-label">Ethereum</span>
+          <span class="chain-caret" aria-hidden="true"></span>
+        </button>
+        <div class="chain-menu" id="chain-menu" role="listbox"></div>
+      </div>
     </div>
     <div class="status-block">
       <span class="dot" id="status-dot"></span>
@@ -103,7 +110,7 @@
           <div class="panel-title">
             <span class="title-tag">CHART</span>
             <h2>Bytecode size distribution</h2>
-            <button class="info-tip" type="button" aria-label="About bytecode size distribution" data-tooltip="Runtime bytecode sizes grouped into semantic ranges. Ethereum runtime bytecode is capped at 24 KB."></button>
+            <button class="info-tip" type="button" aria-label="About bytecode size distribution" data-tooltip="Runtime bytecode sizes grouped into semantic ranges. EVM runtime bytecode is capped at 24 KB."></button>
           </div>
           <span class="meta-tag">EVM cap 24 KB</span>
         </div>
