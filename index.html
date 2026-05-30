@@ -11,8 +11,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <link rel="stylesheet" href="./styles.css?v=16" />
-  <script src="./dashboard.js?v=18" defer></script>
+  <link rel="stylesheet" href="./styles.css?v=18" />
+  <script src="./dashboard.js?v=25" defer></script>
 </head>
 <body>
   <nav class="topbar">
@@ -36,18 +36,17 @@
       <span class="top-refresh" id="footer-refresh">—</span>
     </div>
   </nav>
-
   <main>
     <section class="kpi-row">
       <div class="kpi">
         <div class="kpi-label">Total contracts</div>
         <div class="kpi-value" id="m-total">—</div>
-        <div class="kpi-sub" id="m-block-range">—</div>
+        <div class="kpi-sub" id="m-block-range">loading chain data</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Verified</div>
         <div class="kpi-value" id="m-verified">—</div>
-        <div class="kpi-sub"><span id="m-verified-pct">—</span></div>
+        <div class="kpi-sub"><span id="m-verified-pct">loading chain data</span></div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Unverified</div>
@@ -62,12 +61,12 @@
       <div class="kpi">
         <div class="kpi-label">Last block</div>
         <div class="kpi-value" id="m-last-block">—</div>
-        <div class="kpi-sub" id="m-last-block-time">—</div>
+        <div class="kpi-sub" id="m-last-block-time">loading chain data</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Compiler metadata</div>
         <div class="kpi-value" id="m-lang-top">—</div>
-        <div class="kpi-sub" id="m-lang-sub">decode coverage —</div>
+        <div class="kpi-sub" id="m-lang-sub">loading chain data</div>
       </div>
     </section>
 
@@ -76,7 +75,7 @@
         <div class="panel-title">
           <span class="title-tag">CHART</span>
           <h2>Deployments over time</h2>
-          <button class="info-tip" type="button" aria-label="About deployments over time" data-tooltip="Contract deployments grouped by the selected time bucket."></button>
+          <button class="info-tip" type="button" aria-label="About deployments over time" data-tooltip="Contract deployments within the selected time range."></button>
         </div>
         <div class="seg" data-target="deploys">
           <button data-bucket="hour">1H</button>
@@ -94,7 +93,7 @@
           <div class="panel-title">
             <span class="title-tag">CHART</span>
             <h2>Verification ratio</h2>
-            <button class="info-tip" type="button" aria-label="About verification ratio" data-tooltip="Verified versus unverified contracts by block-time bucket, based on the imported verification registry."></button>
+            <button class="info-tip" type="button" aria-label="About verification ratio" data-tooltip="Verified versus unverified contracts within the selected time range, based on the imported verification registry."></button>
           </div>
           <div class="seg" data-target="verified">
             <button data-bucket="day">1D</button>
@@ -169,7 +168,9 @@
               <th>Verification status</th>
             </tr>
           </thead>
-          <tbody></tbody>
+          <tbody>
+            <tr><td colspan="6" class="query-empty">loading chain data</td></tr>
+          </tbody>
         </table>
       </div>
     </section>
