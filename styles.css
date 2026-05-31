@@ -608,6 +608,19 @@ main {
   padding: 0 9px;
 }
 
+.range-apply {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #050505;
+  font-weight: 700;
+}
+
+.range-apply:hover {
+  border-color: var(--accent);
+  background: #d7ff57;
+  color: #050505;
+}
+
 /* CHARTS */
 .chart-wrap {
   position: relative;
