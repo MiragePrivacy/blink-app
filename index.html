@@ -11,8 +11,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <link rel="stylesheet" href="./styles.css?v=21" />
-  <script type="module" src="./app/main.js?v=2"></script>
+  <link rel="stylesheet" href="./styles.css?v=22" />
+  <script type="module" src="./app/main.js?v=3"></script>
 </head>
 <body>
   <nav class="topbar">
@@ -83,6 +83,24 @@
           <button data-bucket="week">1W</button>
           <button data-bucket="month">1M</button>
         </div>
+        <button class="range-custom-btn" type="button" data-custom-toggle="deploys">Custom</button>
+      </div>
+      <div class="custom-range" id="deploys-custom-range" data-target="deploys" hidden>
+        <select class="range-mode" data-range-mode aria-label="Deployments custom range mode">
+          <option value="time">Time</option>
+          <option value="block">Blocks</option>
+        </select>
+        <div class="range-fields" data-range-fields="time">
+          <input type="datetime-local" data-range-start-time aria-label="Deployments start time" />
+          <input type="datetime-local" data-range-end-time aria-label="Deployments end time" />
+        </div>
+        <div class="range-fields" data-range-fields="block" hidden>
+          <input type="number" min="0" step="1" placeholder="start block" data-range-start-block aria-label="Deployments start block" />
+          <input type="number" min="0" step="1" placeholder="end block" data-range-end-block aria-label="Deployments end block" />
+        </div>
+        <span class="range-summary" data-range-summary>choose range</span>
+        <button class="range-apply" type="button" data-range-apply>Apply</button>
+        <button class="range-clear" type="button" data-range-clear>Latest</button>
       </div>
       <div class="chart-wrap tall"><canvas id="chart-deploys"></canvas></div>
     </section>
@@ -100,6 +118,24 @@
             <button data-bucket="week" class="active">1W</button>
             <button data-bucket="month">1M</button>
           </div>
+          <button class="range-custom-btn" type="button" data-custom-toggle="verified">Custom</button>
+        </div>
+        <div class="custom-range" id="verified-custom-range" data-target="verified" hidden>
+          <select class="range-mode" data-range-mode aria-label="Verification custom range mode">
+            <option value="time">Time</option>
+            <option value="block">Blocks</option>
+          </select>
+          <div class="range-fields" data-range-fields="time">
+            <input type="datetime-local" data-range-start-time aria-label="Verification start time" />
+            <input type="datetime-local" data-range-end-time aria-label="Verification end time" />
+          </div>
+          <div class="range-fields" data-range-fields="block" hidden>
+            <input type="number" min="0" step="1" placeholder="start block" data-range-start-block aria-label="Verification start block" />
+            <input type="number" min="0" step="1" placeholder="end block" data-range-end-block aria-label="Verification end block" />
+          </div>
+          <span class="range-summary" data-range-summary>choose range</span>
+          <button class="range-apply" type="button" data-range-apply>Apply</button>
+          <button class="range-clear" type="button" data-range-clear>Latest</button>
         </div>
         <div class="chart-wrap"><canvas id="chart-verified"></canvas></div>
       </div>
