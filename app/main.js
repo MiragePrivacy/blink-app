@@ -2,6 +2,7 @@ import { fetchJson, postJson } from './api.js';
 import {
   CHART_CACHE_MS,
   CHART_PREFS_KEY,
+  DASHBOARD_SNAPSHOT_PREFIX,
   REFRESH_MS,
   SNAPSHOT_CACHE_MS,
   baseChartDefaults,
@@ -60,6 +61,14 @@ function chartCacheKey(target, chainId, bucket, endBlock = null) {
   return `${target}:${chainId}:${bucket}:${chartWindowKey(endBlock)}`;
 }
 
+function hasChartBuckets(data) {
+  return Array.isArray(data?.buckets) && data.buckets.length > 0;
+}
+
+function shouldUseCachedChartData(data) {
+  return data && hasChartBuckets(data);
+}
+
 function chartEndpoint(target) {
   if (target === 'deploys') return '/api/deploys-over-time';
   if (target === 'verified') return '/api/verified-ratio';
@@ -70,13 +79,17 @@ async function fetchChartData(target, chainId, bucket, endBlock = null, refresh 
   const key = chartCacheKey(target, chainId, bucket, endBlock);
   const cached = chartDataCache.get(key);
   const fresh = cached && Date.now() - cached.storedAt <= CHART_CACHE_MS;
-  if (!refresh && fresh && cached.data) return cached.data;
+  if (!refresh && fresh && shouldUseCachedChartData(cached.data)) return cached.data;
   if (!refresh && cached?.pending) return cached.pending;
 
   const params = chartRequestParams(bucket, endBlock);
   const pending = fetchJson(chainPathFor(chainId, chartEndpoint(target), params))
     .then(data => {
-      chartDataCache.set(key, { data, storedAt: Date.now(), pending: null });
+      if (hasChartBuckets(data)) {
+        chartDataCache.set(key, { data, storedAt: Date.now(), pending: null });
+      } else {
+        chartDataCache.delete(key);
+      }
       return data;
     })
     .catch(err => {
@@ -156,11 +169,11 @@ function dashboardSnapshotKey(
   deployEndBlock = chartCacheEndBlock(deployBucket, chartWindows.deploys),
   verifiedEndBlock = chartCacheEndBlock(verifiedBucket, chartWindows.verified),
 ) {
-  return `blink.dashboard.${chainId}.${deployBucket}.${chartWindowKey(deployEndBlock)}.${verifiedBucket}.${chartWindowKey(verifiedEndBlock)}`;
+  return `${DASHBOARD_SNAPSHOT_PREFIX}.${chainId}.${deployBucket}.${chartWindowKey(deployEndBlock)}.${verifiedBucket}.${chartWindowKey(verifiedEndBlock)}`;
 }
 
 function dashboardLatestSnapshotKey(chainId) {
-  return `blink.dashboard.${chainId}.latest`;
+  return `${DASHBOARD_SNAPSHOT_PREFIX}.${chainId}.latest`;
 }
 
 function readStoredDashboardSnapshot(key) {
@@ -206,8 +219,11 @@ function writeDashboardSnapshot(chainId, payload) {
     payload.verifiedEndBlock,
   );
   const latestKey = dashboardLatestSnapshotKey(chainId);
+  const hasContracts = Number(payload.stats?.total_contracts || 0) > 0;
   const snapshot = {
     ...payload,
+    deploys: hasContracts && !hasChartBuckets(payload.deploys) ? null : payload.deploys,
+    verified: hasContracts && !hasChartBuckets(payload.verified) ? null : payload.verified,
     storedAt: Date.now(),
   };
   dashboardPayloadCache.set(key, snapshot);

@@ -1,6 +1,7 @@
 export const REFRESH_MS = 30_000;
 export const CHART_CACHE_MS = 60_000;
 export const SNAPSHOT_CACHE_MS = 300_000;
+export const DASHBOARD_SNAPSHOT_PREFIX = 'blink.dashboard.v2';
 export const CHART_PREFS_KEY = 'blink.chart_prefs';
 
 export const palette = {
