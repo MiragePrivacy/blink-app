@@ -492,16 +492,8 @@ main {
   user-select: none;
 }
 
-.chart-wrap.pannable canvas {
-  transition: transform 100ms ease, opacity 100ms ease;
-}
-
 .chart-wrap.pannable.dragging {
   cursor: grabbing;
-}
-
-.chart-wrap.pannable.dragging canvas {
-  transition: none;
 }
 
 .chart-wrap.tall { height: 270px; }

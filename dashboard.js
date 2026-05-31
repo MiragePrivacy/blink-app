@@ -84,7 +84,6 @@ const charts = {};
 const chartDataCache = new Map();
 const dashboardPayloadCache = new Map();
 const lastRenderedCharts = {};
-const verificationCoverageByChain = new Map();
 const recentState = {
   limit: 20,
   page: 0,
@@ -178,8 +177,7 @@ async function fetchChartData(target, chainId, bucket, endBlock = null, refresh 
   if (!refresh && fresh && cached.data) return cached.data;
   if (!refresh && cached?.pending) return cached.pending;
 
-  const params = { range: bucket };
-  if (endBlock !== null && endBlock !== undefined) params.end_block = String(endBlock);
+  const params = chartRequestParams(bucket, endBlock);
   const pending = fetchJson(chainPathFor(chainId, chartEndpoint(target), params))
     .then(data => {
       chartDataCache.set(key, { data, storedAt: Date.now(), pending: null });
@@ -203,6 +201,16 @@ async function fetchChartData(target, chainId, bucket, endBlock = null, refresh 
     pending,
   });
   return pending;
+}
+
+function chartRequestParams(bucket, endBlock = null) {
+  const params = bucket === 'week' || bucket === 'month'
+    ? { bucket }
+    : { range: bucket };
+  if (params.range && endBlock !== null && endBlock !== undefined) {
+    params.end_block = String(endBlock);
+  }
+  return params;
 }
 
 function cachedChartData(target, chainId, bucket, endBlock = null) {
@@ -700,7 +708,6 @@ function renderRuntimeStatus(runtime) {
 }
 
 function renderStats(s) {
-  verificationCoverageByChain.set(selectedChainId(), Number(s.enrichment_coverage_pct) || 0);
   document.getElementById('m-total').textContent = fmtFull(s.total_contracts);
   document.getElementById('m-block-range').textContent =
     s.first_block === 0 && s.last_block === 0
@@ -780,8 +787,6 @@ async function loadDeploys(chainId = selectedChainId(), epoch = renderEpoch, buc
 
 function renderVerified(data, bucket = buckets.verified) {
   const all = data.buckets || [];
-  const verificationCoverage = verificationCoverageByChain.get(selectedChainId()) || 0;
-  const verificationComplete = verificationCoverage >= 99.99;
 
   const ctx = document.getElementById('chart-verified');
   if (charts.verified) charts.verified.destroy();
@@ -798,17 +803,14 @@ function renderVerified(data, bucket = buckets.verified) {
 
   const points = all.map(b => {
     const verified = b.verified || 0;
-    const unverified = (b.unverified || 0) + (verificationComplete ? (b.unknown || 0) : 0);
-    const unknown = verificationComplete ? 0 : (b.unknown || 0);
-    const total = verified + unverified + unknown;
+    const unverified = (b.unverified || 0) + (b.unknown || 0);
+    const total = verified + unverified;
     const pct = (n) => total > 0 ? (100 * n / total) : 0;
     return {
       verified: pct(verified),
       unverified: pct(unverified),
-      unknown: pct(unknown),
       vAbs: verified,
       uAbs: unverified,
-      kAbs: unknown,
       blockStart: b.block_start,
       blockEnd: b.block_end,
     };
@@ -835,14 +837,6 @@ function renderVerified(data, bucket = buckets.verified) {
           backgroundColor: 'transparent',
           fill: false, pointRadius: 0, borderWidth: 1.8, tension: 0.45,
         },
-        {
-          label: 'unknown',
-          data: points.map(p => p.kAbs),
-          borderColor: palette.ash,
-          backgroundColor: 'transparent',
-          fill: false, pointRadius: 0, borderWidth: 1.4, tension: 0.45,
-          hidden: !points.some(p => p.kAbs > 0),
-        },
       ],
     },
     options: {
@@ -856,12 +850,8 @@ function renderVerified(data, bucket = buckets.verified) {
             title: items => labels[items[0].dataIndex],
             label: (item) => {
               const p = points[item.dataIndex];
-              const abs = item.datasetIndex === 0 ? p.vAbs : item.datasetIndex === 1 ? p.uAbs : p.kAbs;
-              const share = item.datasetIndex === 0
-                ? p.verified
-                : item.datasetIndex === 1
-                  ? p.unverified
-                  : p.unknown;
+              const abs = item.datasetIndex === 0 ? p.vAbs : p.uAbs;
+              const share = item.datasetIndex === 0 ? p.verified : p.unverified;
               return `${item.dataset.label}: ${fmtFull(abs)} (${share.toFixed(1)}%)`;
             },
             afterBody: items => {
@@ -1419,12 +1409,9 @@ function switchChartBucket(target, bucket, options = {}) {
 }
 
 function chartWindowBounds(data) {
-  const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
-  const firstBucket = buckets[0] || {};
-  const lastBucket = buckets[buckets.length - 1] || {};
-  const start = Number(data?.range_start_block ?? firstBucket.block_start);
-  const end = Number(data?.range_end_block ?? lastBucket.block_end);
-  const latest = Number(data?.latest_block ?? lastBucket.block_end);
+  const start = Number(data?.range_start_block);
+  const end = Number(data?.range_end_block);
+  const latest = Number(data?.latest_block);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return null;
   return {
     start,
@@ -1432,11 +1419,6 @@ function chartWindowBounds(data) {
     latest: Number.isFinite(latest) ? latest : end,
     width: Math.max(1, end - start + 1),
   };
-}
-
-function resetChartPanPreview(canvas) {
-  canvas.style.transform = '';
-  canvas.style.opacity = '';
 }
 
 function panChartWindow(target, dragPx, surfaceWidth) {
@@ -1494,11 +1476,6 @@ function attachChartPan() {
         dragging = true;
         surface.classList.add('dragging');
       }
-      if (dragging) {
-        const previewPx = Math.max(-120, Math.min(120, dx * 0.35));
-        canvas.style.transform = `translateX(${previewPx}px)`;
-        canvas.style.opacity = '0.72';
-      }
     });
 
     surface.addEventListener('pointerup', event => {
@@ -1508,7 +1485,6 @@ function attachChartPan() {
       pointerId = null;
       dragging = false;
       surface.classList.remove('dragging');
-      resetChartPanPreview(canvas);
       if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
       panChartWindow(target, dx, surface.clientWidth);
     });
@@ -1517,7 +1493,6 @@ function attachChartPan() {
       pointerId = null;
       dragging = false;
       surface.classList.remove('dragging');
-      resetChartPanPreview(canvas);
     });
   }
 }
