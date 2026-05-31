@@ -1826,7 +1826,13 @@ function attachCustomRangeControls() {
   document.querySelectorAll('.custom-range').forEach(panel => {
     const target = panel.dataset.target;
     const mode = panel.querySelector('[data-range-mode]');
-    mode?.addEventListener('change', () => syncCustomRangeControls());
+    mode?.addEventListener('change', () => {
+      if (customRanges[target]?.type !== mode.value) {
+        customRanges[target] = null;
+        writeChartPrefs();
+      }
+      syncCustomRangeControls();
+    });
 
     panel.querySelector('[data-range-apply]')?.addEventListener('click', () => {
       try {
@@ -1857,6 +1863,21 @@ function attachCustomRangeControls() {
 
 function defaultCustomRange(target) {
   const rendered = lastRenderedCharts[target];
+  const buckets = rendered?.data?.buckets || [];
+  const firstTimestamp = buckets[0]?.timestamp;
+  const lastTimestamp = buckets[buckets.length - 1]?.timestamp;
+  if (firstTimestamp && lastTimestamp) {
+    const start = new Date(firstTimestamp);
+    const end = new Date(lastTimestamp);
+    if (Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && start <= end) {
+      return {
+        type: 'time',
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+      };
+    }
+  }
+
   const bounds = chartWindowBounds(rendered?.data);
   if (bounds) {
     return { type: 'block', start_block: bounds.start, end_block: bounds.end };
