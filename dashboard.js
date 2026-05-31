@@ -84,6 +84,7 @@ const charts = {};
 const chartDataCache = new Map();
 const dashboardPayloadCache = new Map();
 const lastRenderedCharts = {};
+const verificationCoverageByChain = new Map();
 const recentState = {
   limit: 20,
   page: 0,
@@ -699,6 +700,7 @@ function renderRuntimeStatus(runtime) {
 }
 
 function renderStats(s) {
+  verificationCoverageByChain.set(selectedChainId(), Number(s.enrichment_coverage_pct) || 0);
   document.getElementById('m-total').textContent = fmtFull(s.total_contracts);
   document.getElementById('m-block-range').textContent =
     s.first_block === 0 && s.last_block === 0
@@ -778,6 +780,8 @@ async function loadDeploys(chainId = selectedChainId(), epoch = renderEpoch, buc
 
 function renderVerified(data, bucket = buckets.verified) {
   const all = data.buckets || [];
+  const verificationCoverage = verificationCoverageByChain.get(selectedChainId()) || 0;
+  const verificationComplete = verificationCoverage >= 99.99;
 
   const ctx = document.getElementById('chart-verified');
   if (charts.verified) charts.verified.destroy();
@@ -793,15 +797,18 @@ function renderVerified(data, bucket = buckets.verified) {
   }
 
   const points = all.map(b => {
-    const total = (b.verified || 0) + (b.unverified || 0) + (b.unknown || 0);
+    const verified = b.verified || 0;
+    const unverified = (b.unverified || 0) + (verificationComplete ? (b.unknown || 0) : 0);
+    const unknown = verificationComplete ? 0 : (b.unknown || 0);
+    const total = verified + unverified + unknown;
     const pct = (n) => total > 0 ? (100 * n / total) : 0;
     return {
-      verified: pct(b.verified || 0),
-      unverified: pct(b.unverified || 0),
-      unknown: pct(b.unknown || 0),
-      vAbs: b.verified || 0,
-      uAbs: b.unverified || 0,
-      kAbs: b.unknown || 0,
+      verified: pct(verified),
+      unverified: pct(unverified),
+      unknown: pct(unknown),
+      vAbs: verified,
+      uAbs: unverified,
+      kAbs: unknown,
       blockStart: b.block_start,
       blockEnd: b.block_end,
     };
