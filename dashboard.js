@@ -1350,7 +1350,7 @@ function renderCachedDashboard() {
   return renderDashboardPayload(snapshot, chainId, renderEpoch);
 }
 
-function switchChartBucket(target, bucket) {
+function switchChartBucket(target, bucket, options = {}) {
   const chainId = selectedChainId();
   const endBlock = chartWindows[target];
   const key = chartCacheKey(target, chainId, bucket, endBlock);
@@ -1365,6 +1365,13 @@ function switchChartBucket(target, bucket) {
     chartWindowKey(lastRenderedCharts[target].endBlock) === chartWindowKey(endBlock)
   ) {
     renderChartTarget(target, lastRenderedCharts[target].data, bucket, endBlock);
+  } else if (options.keepCurrent && lastRenderedCharts[target]?.data) {
+    renderChartTarget(
+      target,
+      lastRenderedCharts[target].data,
+      lastRenderedCharts[target].bucket,
+      lastRenderedCharts[target].endBlock,
+    );
   } else {
     showChartLoading(target, bucket);
   }
@@ -1408,7 +1415,12 @@ function chartWindowBounds(data) {
   };
 }
 
-function panChartWindow(target, direction) {
+function resetChartPanPreview(canvas) {
+  canvas.style.transform = '';
+  canvas.style.opacity = '';
+}
+
+function panChartWindow(target, dragPx, surfaceWidth) {
   const rendered = lastRenderedCharts[target];
   const bounds = chartWindowBounds(rendered?.data);
   if (!bounds) {
@@ -1416,19 +1428,22 @@ function panChartWindow(target, direction) {
     return;
   }
 
-  if (direction < 0) {
-    chartWindows[target] = Math.max(0, bounds.start - 1);
+  const dragRatio = Math.min(2, Math.abs(dragPx) / Math.max(1, surfaceWidth));
+  const shiftBlocks = Math.max(1, Math.round(bounds.width * dragRatio));
+
+  if (dragPx > 0) {
+    chartWindows[target] = Math.max(0, bounds.end - shiftBlocks);
   } else {
     if (bounds.end >= bounds.latest) {
       chartWindows[target] = null;
       writeChartPrefs();
       return;
     }
-    const nextEnd = Math.min(bounds.latest, bounds.end + bounds.width);
+    const nextEnd = Math.min(bounds.latest, bounds.end + shiftBlocks);
     chartWindows[target] = nextEnd >= bounds.latest ? null : nextEnd;
   }
   writeChartPrefs();
-  switchChartBucket(target, buckets[target]);
+  switchChartBucket(target, buckets[target], { keepCurrent: true });
 }
 
 function attachChartPan() {
@@ -1460,6 +1475,11 @@ function attachChartPan() {
         dragging = true;
         surface.classList.add('dragging');
       }
+      if (dragging) {
+        const previewPx = Math.max(-120, Math.min(120, dx * 0.35));
+        canvas.style.transform = `translateX(${previewPx}px)`;
+        canvas.style.opacity = '0.72';
+      }
     });
 
     surface.addEventListener('pointerup', event => {
@@ -1469,14 +1489,16 @@ function attachChartPan() {
       pointerId = null;
       dragging = false;
       surface.classList.remove('dragging');
+      resetChartPanPreview(canvas);
       if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
-      panChartWindow(target, dx > 0 ? -1 : 1);
+      panChartWindow(target, dx, surface.clientWidth);
     });
 
     surface.addEventListener('pointercancel', () => {
       pointerId = null;
       dragging = false;
       surface.classList.remove('dragging');
+      resetChartPanPreview(canvas);
     });
   }
 }
