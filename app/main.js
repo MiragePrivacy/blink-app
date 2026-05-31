@@ -1,78 +1,29 @@
-const REFRESH_MS = 30_000;
-const CHART_CACHE_MS = 60_000;
-const SNAPSHOT_CACHE_MS = 300_000;
-const palette = {
-  accent: '#bdff00',
-  accentSoft: 'rgba(189, 255, 0, 0.14)',
-  accentLine: 'rgba(189, 255, 0, 0.85)',
-  red: '#ff4d4d',
-  redSoft: 'rgba(255, 77, 77, 0.16)',
-  ash: '#8a8f98',
-  ashSoft: 'rgba(138, 143, 152, 0.16)',
-  blue: '#4da6ff',
-  blueSoft: 'rgba(77, 166, 255, 0.16)',
-  amber: '#ffb547',
-  text: '#ededed',
-  dim: '#707070',
-  faint: '#404040',
-  grid: 'rgba(255, 255, 255, 0.04)',
-  axis: 'rgba(255, 255, 255, 0.06)',
-  bg: '#050505',
-};
+import { fetchJson, postJson } from './api.js';
+import {
+  CHART_CACHE_MS,
+  CHART_PREFS_KEY,
+  REFRESH_MS,
+  SNAPSHOT_CACHE_MS,
+  baseChartDefaults,
+  baseScales,
+  baseTooltip,
+  configureChartDefaults,
+  defaultChains as chains,
+  palette,
+} from './config.js';
+import {
+  bucketLabel,
+  escapeHtml,
+  fmtBytes,
+  fmtFull,
+  fmtNumber,
+  fmtTime,
+  renderQueryValue,
+  shortAddr,
+  shortError,
+} from './format.js';
 
-Chart.defaults.color = palette.dim;
-Chart.defaults.borderColor = palette.grid;
-Chart.defaults.font.family = '"JetBrains Mono", ui-monospace, monospace';
-Chart.defaults.font.size = 10.5;
-
-const baseScales = {
-  x: {
-    ticks: { color: palette.dim, maxRotation: 0, autoSkipPadding: 24, font: { size: 10 } },
-    grid: { color: palette.grid, drawTicks: false },
-    border: { color: palette.axis },
-  },
-  y: {
-    ticks: { color: palette.dim, font: { size: 10 }, padding: 6 },
-    grid: { color: palette.grid, drawTicks: false },
-    border: { display: false },
-    beginAtZero: true,
-  },
-};
-
-const baseTooltip = {
-  backgroundColor: '#000',
-  borderColor: '#262626',
-  borderWidth: 1,
-  cornerRadius: 0,
-  padding: 10,
-  titleColor: palette.text,
-  titleFont: { family: '"JetBrains Mono", monospace', size: 10, weight: '500' },
-  bodyColor: palette.text,
-  bodyFont: { family: '"JetBrains Mono", monospace', size: 11 },
-  displayColors: true,
-  boxPadding: 4,
-};
-
-const baseChartDefaults = {
-  responsive: true,
-  maintainAspectRatio: false,
-  animation: false,
-  interaction: { mode: 'index', intersect: false },
-  plugins: {
-    legend: {
-      labels: {
-        color: palette.dim,
-        font: { size: 10, family: '"JetBrains Mono", monospace' },
-        usePointStyle: true,
-        pointStyle: 'rectRounded',
-        boxWidth: 8,
-        boxHeight: 8,
-      },
-    },
-    tooltip: baseTooltip,
-  },
-  scales: baseScales,
-};
+configureChartDefaults(Chart);
 
 const buckets = { deploys: 'day', verified: 'week' };
 const chartWindows = { deploys: null, verified: null };
@@ -93,68 +44,13 @@ const recentState = {
   loading: false,
 };
 
-const chains = [
-  {
-    chain_id: 1,
-    name: 'Ethereum',
-    short_name: 'ETH',
-    native_symbol: 'ETH',
-    explorer_url: 'https://etherscan.io',
-    icon_key: 'ethereum',
-  },
-  {
-    chain_id: 100,
-    name: 'Gnosis',
-    short_name: 'GNO',
-    native_symbol: 'xDAI',
-    explorer_url: 'https://gnosisscan.io',
-    icon_key: 'gnosis',
-  },
-];
-
 const chainState = {
   chains,
   selectedId: Number(localStorage.getItem('blink.chain_id')) || 1,
   menuOpen: false,
 };
 
-const API_BASE = 'https://blink-api.mirageprivacy.com';
-const CHART_PREFS_KEY = 'blink.chart_prefs';
 let renderEpoch = 0;
-
-function apiUrl(path) {
-  return `${API_BASE}${path}`;
-}
-
-async function fetchJson(path) {
-  const url = apiUrl(path);
-  const r = await fetch(url);
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    const err = new Error(`request failed (${r.status})`);
-    err.path = path;
-    err.detail = data.error || `${path} → ${r.status}`;
-    throw err;
-  }
-  return data;
-}
-
-async function postJson(path, payload) {
-  const url = apiUrl(path);
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    const err = new Error(`request failed (${r.status})`);
-    err.path = path;
-    err.detail = data.error || `${path} → ${r.status}`;
-    throw err;
-  }
-  return data;
-}
 
 function chartWindowKey(endBlock = null) {
   return endBlock === null || endBlock === undefined ? 'latest' : String(endBlock);
@@ -257,8 +153,8 @@ function dashboardSnapshotKey(
   chainId,
   deployBucket = buckets.deploys,
   verifiedBucket = buckets.verified,
-  deployEndBlock = chartWindows.deploys,
-  verifiedEndBlock = chartWindows.verified,
+  deployEndBlock = chartCacheEndBlock(deployBucket, chartWindows.deploys),
+  verifiedEndBlock = chartCacheEndBlock(verifiedBucket, chartWindows.verified),
 ) {
   return `blink.dashboard.${chainId}.${deployBucket}.${chartWindowKey(deployEndBlock)}.${verifiedBucket}.${chartWindowKey(verifiedEndBlock)}`;
 }
@@ -290,8 +186,10 @@ function readDashboardSnapshot(chainId) {
     exact &&
     exact.deployBucket === buckets.deploys &&
     exact.verifiedBucket === buckets.verified &&
-    chartWindowKey(exact.deployEndBlock) === chartWindowKey(chartWindows.deploys) &&
-    chartWindowKey(exact.verifiedEndBlock) === chartWindowKey(chartWindows.verified)
+    chartWindowKey(exact.deployEndBlock) ===
+      chartWindowKey(chartCacheEndBlock(buckets.deploys, chartWindows.deploys)) &&
+    chartWindowKey(exact.verifiedEndBlock) ===
+      chartWindowKey(chartCacheEndBlock(buckets.verified, chartWindows.verified))
   ) {
     return exact;
   }
@@ -324,18 +222,34 @@ function writeDashboardSnapshot(chainId, payload) {
 
 function hydrateChartCacheFromSnapshot(chainId, payload) {
   if (payload.deploys) {
-    chartDataCache.set(chartCacheKey('deploys', chainId, payload.deployBucket, payload.deployEndBlock), {
-      data: payload.deploys,
-      storedAt: payload.storedAt || Date.now(),
-      pending: null,
-    });
+    chartDataCache.set(
+      chartCacheKey(
+        'deploys',
+        chainId,
+        payload.deployBucket,
+        chartCacheEndBlock(payload.deployBucket, payload.deployEndBlock),
+      ),
+      {
+        data: payload.deploys,
+        storedAt: payload.storedAt || Date.now(),
+        pending: null,
+      },
+    );
   }
   if (payload.verified) {
-    chartDataCache.set(chartCacheKey('verified', chainId, payload.verifiedBucket, payload.verifiedEndBlock), {
-      data: payload.verified,
-      storedAt: payload.storedAt || Date.now(),
-      pending: null,
-    });
+    chartDataCache.set(
+      chartCacheKey(
+        'verified',
+        chainId,
+        payload.verifiedBucket,
+        chartCacheEndBlock(payload.verifiedBucket, payload.verifiedEndBlock),
+      ),
+      {
+        data: payload.verified,
+        storedAt: payload.storedAt || Date.now(),
+        pending: null,
+      },
+    );
   }
 }
 
@@ -621,41 +535,6 @@ async function loadChains() {
   syncDefaultSqlToChain();
 }
 
-function fmtNumber(n) {
-  if (n === null || n === undefined) return '—';
-  const v = Number(n);
-  if (!isFinite(v)) return '—';
-  const abs = Math.abs(v);
-  if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-  if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-  if (abs >= 1e3) return (v / 1e3).toFixed(1) + 'K';
-  return String(v);
-}
-
-function fmtFull(n) {
-  if (n === null || n === undefined) return '—';
-  return Number(n).toLocaleString('en-US');
-}
-
-function fmtBytes(n) {
-  if (n < 1024) return n + ' B';
-  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
-  return (n / 1024 / 1024).toFixed(1) + ' MB';
-}
-
-function fmtTime(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
-}
-
-function bucketLabel(row, bucket) {
-  if (!row.timestamp) return `${fmtFull(row.block_start)}-${fmtFull(row.block_end)}`;
-  const timestamp = Date.parse(row.timestamp);
-  if (!Number.isFinite(timestamp)) return `${fmtFull(row.block_start)}-${fmtFull(row.block_end)}`;
-  const day = new Date(timestamp).toISOString().slice(0, 10);
-  return bucket === 'month' ? day.slice(0, 7) : day;
-}
-
 function setStatus(state, text) {
   const dot = document.getElementById('status-dot');
   const txt = document.getElementById('status-text');
@@ -671,11 +550,6 @@ function isoAgeMs(iso) {
   if (!iso) return Infinity;
   const t = Date.parse(iso);
   return Number.isFinite(t) ? Date.now() - t : Infinity;
-}
-
-function shortError(message) {
-  if (!message) return '';
-  return message.length > 72 ? message.slice(0, 69) + '...' : message;
 }
 
 function renderRuntimeStatus(runtime) {
@@ -1138,32 +1012,10 @@ async function loadCompilers(chainId = selectedChainId(), epoch = renderEpoch) {
   return data;
 }
 
-function shortAddr(addr) {
-  if (!addr) return '—';
-  return addr.slice(0, 8) + '…' + addr.slice(-6);
-}
-
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, ch => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[ch]);
-}
-
 function verifiedBadge(v) {
   if (v === true)  return '<span class="badge ok">verified</span>';
   if (v === false) return '<span class="badge no">unverified</span>';
   return '<span class="badge dim">unchecked</span>';
-}
-
-function renderQueryValue(value) {
-  if (value === null || value === undefined) return '<span class="dim-text">NULL</span>';
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'number') return Number.isInteger(value) ? fmtFull(value) : String(value);
-  return escapeHtml(value);
 }
 
 function renderQueryResult(data) {
@@ -1310,6 +1162,9 @@ function updateRecentPager() {
 function renderDashboardPayload(payload, chainId, epoch) {
   if (!canRender(epoch, chainId)) return false;
 
+  const deployEndBlock = chartCacheEndBlock(payload.deployBucket, payload.deployEndBlock);
+  const verifiedEndBlock = chartCacheEndBlock(payload.verifiedBucket, payload.verifiedEndBlock);
+
   if (payload.stats) renderStats(payload.stats);
   else renderStatsUnavailable();
 
@@ -1317,14 +1172,14 @@ function renderDashboardPayload(payload, chainId, epoch) {
     payload.deployBucket === buckets.deploys
       ? payload.deploys
       : cachedChartData('deploys', chainId, buckets.deploys, chartWindows.deploys);
-  if (deploys) renderChartTarget('deploys', deploys, buckets.deploys, payload.deployEndBlock);
+  if (deploys) renderChartTarget('deploys', deploys, buckets.deploys, deployEndBlock);
   else clearCanvasMessage('chart-deploys', 'loading chain data');
 
   const verified =
     payload.verifiedBucket === buckets.verified
       ? payload.verified
       : cachedChartData('verified', chainId, buckets.verified, chartWindows.verified);
-  if (verified) renderChartTarget('verified', verified, buckets.verified, payload.verifiedEndBlock);
+  if (verified) renderChartTarget('verified', verified, buckets.verified, verifiedEndBlock);
   else clearCanvasMessage('chart-verified', 'loading chain data');
 
   if (payload.sizes) renderSizes(payload.sizes);
@@ -1358,8 +1213,8 @@ function renderCachedDashboard() {
   const chainId = selectedChainId();
   const snapshot = readDashboardSnapshot(chainId);
   if (!snapshot) return false;
-  chartWindows.deploys = snapshot.deployEndBlock ?? null;
-  chartWindows.verified = snapshot.verifiedEndBlock ?? null;
+  chartWindows.deploys = chartCacheEndBlock(snapshot.deployBucket, snapshot.deployEndBlock) ?? null;
+  chartWindows.verified = chartCacheEndBlock(snapshot.verifiedBucket, snapshot.verifiedEndBlock) ?? null;
   hydrateChartCacheFromSnapshot(chainId, snapshot);
   return renderDashboardPayload(snapshot, chainId, renderEpoch);
 }
