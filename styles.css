@@ -358,6 +358,7 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 12px 18px;
   border-bottom: 1px solid var(--border);
@@ -367,7 +368,9 @@ main {
 .panel-title {
   display: flex;
   align-items: center;
+  flex: 1 1 auto;
   gap: 10px;
+  min-width: min(100%, 220px);
 }
 
 .title-tag {

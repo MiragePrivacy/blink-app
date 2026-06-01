@@ -11,8 +11,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <link rel="stylesheet" href="./styles.css?v=25" />
-  <script type="module" src="./app/main.js?v=6"></script>
+  <link rel="stylesheet" href="./styles.css?v=26" />
+  <script type="module" src="./app/main.js?v=7"></script>
 </head>
 <body>
   <nav class="topbar">
@@ -150,6 +150,30 @@
             <button class="info-tip" type="button" aria-label="About bytecode size distribution" data-tooltip="Runtime bytecode sizes grouped into semantic ranges. EVM runtime bytecode is capped at 24 KB."></button>
           </div>
           <span class="meta-tag">EVM cap 24 KB</span>
+          <div class="seg" data-target="sizes">
+            <button data-bucket="day">1D</button>
+            <button data-bucket="week">1W</button>
+            <button data-bucket="month" class="active">1M</button>
+            <button data-bucket="year">1Y</button>
+          </div>
+          <button class="range-custom-btn" type="button" data-custom-toggle="sizes">Custom</button>
+        </div>
+        <div class="custom-range" id="sizes-custom-range" data-target="sizes" hidden>
+          <select class="range-mode" data-range-mode aria-label="Bytecode size custom range mode">
+            <option value="time">Time</option>
+            <option value="block">Blocks</option>
+          </select>
+          <div class="range-fields" data-range-fields="time">
+            <input type="datetime-local" data-range-start-time aria-label="Bytecode size start time" />
+            <input type="datetime-local" data-range-end-time aria-label="Bytecode size end time" />
+          </div>
+          <div class="range-fields" data-range-fields="block" hidden>
+            <input type="number" min="0" step="1" placeholder="start block" data-range-start-block aria-label="Bytecode size start block" />
+            <input type="number" min="0" step="1" placeholder="end block" data-range-end-block aria-label="Bytecode size end block" />
+          </div>
+          <span class="range-summary" data-range-summary>choose range</span>
+          <button class="range-apply" type="button" data-range-apply>Apply range</button>
+          <button class="range-clear" type="button" data-range-clear>Latest</button>
         </div>
         <div class="chart-wrap"><canvas id="chart-sizes"></canvas></div>
       </div>
@@ -164,6 +188,30 @@
             <button class="info-tip" type="button" aria-label="About top compiler versions" data-tooltip="Most common compiler versions decoded from runtime bytecode metadata."></button>
           </div>
           <span class="meta-tag" id="compilers-source">decoded</span>
+          <div class="seg" data-target="compilers">
+            <button data-bucket="day">1D</button>
+            <button data-bucket="week">1W</button>
+            <button data-bucket="month" class="active">1M</button>
+            <button data-bucket="year">1Y</button>
+          </div>
+          <button class="range-custom-btn" type="button" data-custom-toggle="compilers">Custom</button>
+        </div>
+        <div class="custom-range" id="compilers-custom-range" data-target="compilers" hidden>
+          <select class="range-mode" data-range-mode aria-label="Compiler custom range mode">
+            <option value="time">Time</option>
+            <option value="block">Blocks</option>
+          </select>
+          <div class="range-fields" data-range-fields="time">
+            <input type="datetime-local" data-range-start-time aria-label="Compiler start time" />
+            <input type="datetime-local" data-range-end-time aria-label="Compiler end time" />
+          </div>
+          <div class="range-fields" data-range-fields="block" hidden>
+            <input type="number" min="0" step="1" placeholder="start block" data-range-start-block aria-label="Compiler start block" />
+            <input type="number" min="0" step="1" placeholder="end block" data-range-end-block aria-label="Compiler end block" />
+          </div>
+          <span class="range-summary" data-range-summary>choose range</span>
+          <button class="range-apply" type="button" data-range-apply>Apply range</button>
+          <button class="range-clear" type="button" data-range-clear>Latest</button>
         </div>
         <div class="chart-wrap"><canvas id="chart-compilers"></canvas></div>
       </div>
@@ -176,6 +224,30 @@
             <button class="info-tip" type="button" aria-label="About standards" data-tooltip="Standards are inferred bytecode signals such as ERC selectors, proxy patterns, PUSH0 usage, and compiler source metadata hashes."></button>
           </div>
           <span class="meta-tag" id="standards-coverage">— decoded</span>
+          <div class="seg" data-target="standards">
+            <button data-bucket="day">1D</button>
+            <button data-bucket="week">1W</button>
+            <button data-bucket="month" class="active">1M</button>
+            <button data-bucket="year">1Y</button>
+          </div>
+          <button class="range-custom-btn" type="button" data-custom-toggle="standards">Custom</button>
+        </div>
+        <div class="custom-range" id="standards-custom-range" data-target="standards" hidden>
+          <select class="range-mode" data-range-mode aria-label="Standards custom range mode">
+            <option value="time">Time</option>
+            <option value="block">Blocks</option>
+          </select>
+          <div class="range-fields" data-range-fields="time">
+            <input type="datetime-local" data-range-start-time aria-label="Standards start time" />
+            <input type="datetime-local" data-range-end-time aria-label="Standards end time" />
+          </div>
+          <div class="range-fields" data-range-fields="block" hidden>
+            <input type="number" min="0" step="1" placeholder="start block" data-range-start-block aria-label="Standards start block" />
+            <input type="number" min="0" step="1" placeholder="end block" data-range-end-block aria-label="Standards end block" />
+          </div>
+          <span class="range-summary" data-range-summary>choose range</span>
+          <button class="range-apply" type="button" data-range-apply>Apply range</button>
+          <button class="range-clear" type="button" data-range-clear>Latest</button>
         </div>
         <div class="chart-wrap"><canvas id="chart-standards"></canvas></div>
       </div>
