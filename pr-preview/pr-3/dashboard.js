@@ -1393,9 +1393,12 @@ function switchChartBucket(target, bucket) {
 }
 
 function chartWindowBounds(data) {
-  const start = Number(data?.range_start_block);
-  const end = Number(data?.range_end_block);
-  const latest = Number(data?.latest_block);
+  const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
+  const firstBucket = buckets[0] || {};
+  const lastBucket = buckets[buckets.length - 1] || {};
+  const start = Number(data?.range_start_block ?? firstBucket.block_start);
+  const end = Number(data?.range_end_block ?? lastBucket.block_end);
+  const latest = Number(data?.latest_block ?? lastBucket.block_end);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return null;
   return {
     start,
@@ -1408,7 +1411,10 @@ function chartWindowBounds(data) {
 function panChartWindow(target, direction) {
   const rendered = lastRenderedCharts[target];
   const bounds = chartWindowBounds(rendered?.data);
-  if (!bounds) return;
+  if (!bounds) {
+    logDashboardError(`${target} pan`, new Error('missing chart range metadata'));
+    return;
+  }
 
   if (direction < 0) {
     chartWindows[target] = Math.max(0, bounds.start - 1);
@@ -1429,30 +1435,48 @@ function attachChartPan() {
   for (const target of ['deploys', 'verified']) {
     const canvas = document.getElementById(chartCanvasId(target));
     if (!canvas) continue;
-    canvas.style.touchAction = 'pan-y';
+    const surface = canvas.closest('.chart-wrap') || canvas;
+    surface.style.touchAction = 'pan-y';
+    surface.classList.add('pannable');
 
     let pointerId = null;
     let startX = 0;
     let startY = 0;
+    let dragging = false;
 
-    canvas.addEventListener('pointerdown', event => {
+    surface.addEventListener('pointerdown', event => {
       pointerId = event.pointerId;
       startX = event.clientX;
       startY = event.clientY;
-      canvas.setPointerCapture(pointerId);
+      dragging = false;
+      surface.setPointerCapture(pointerId);
     });
 
-    canvas.addEventListener('pointerup', event => {
+    surface.addEventListener('pointermove', event => {
+      if (pointerId !== event.pointerId) return;
+      const dx = event.clientX - startX;
+      const dy = event.clientY - startY;
+      if (!dragging && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+        dragging = true;
+        surface.classList.add('dragging');
+      }
+    });
+
+    surface.addEventListener('pointerup', event => {
       if (pointerId !== event.pointerId) return;
       const dx = event.clientX - startX;
       const dy = event.clientY - startY;
       pointerId = null;
-      if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+      dragging = false;
+      surface.classList.remove('dragging');
+      if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy) * 1.15) return;
       panChartWindow(target, dx > 0 ? -1 : 1);
     });
 
-    canvas.addEventListener('pointercancel', () => {
+    surface.addEventListener('pointercancel', () => {
       pointerId = null;
+      dragging = false;
+      surface.classList.remove('dragging');
     });
   }
 }

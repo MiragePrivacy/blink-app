@@ -486,6 +486,15 @@ main {
   padding: 16px 18px;
 }
 
+.chart-wrap.pannable {
+  cursor: grab;
+  user-select: none;
+}
+
+.chart-wrap.pannable.dragging {
+  cursor: grabbing;
+}
+
 .chart-wrap.tall { height: 270px; }
 
 /* TABLE */
