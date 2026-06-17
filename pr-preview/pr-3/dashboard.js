@@ -75,6 +75,7 @@ const baseChartDefaults = {
 };
 
 const buckets = { deploys: 'day', verified: 'week' };
+const chartWindows = { deploys: null, verified: null };
 const chartBuckets = {
   deploys: ['hour', 'day', 'week', 'month'],
   verified: ['day', 'week', 'month'],
@@ -118,6 +119,7 @@ const chainState = {
 };
 
 const API_BASE = 'https://blink-api.mirageprivacy.com';
+const CHART_PREFS_KEY = 'blink.chart_prefs';
 let renderEpoch = 0;
 
 function apiUrl(path) {
@@ -154,8 +156,12 @@ async function postJson(path, payload) {
   return data;
 }
 
-function chartCacheKey(target, chainId, bucket) {
-  return `${target}:${chainId}:${bucket}`;
+function chartWindowKey(endBlock = null) {
+  return endBlock === null || endBlock === undefined ? 'latest' : String(endBlock);
+}
+
+function chartCacheKey(target, chainId, bucket, endBlock = null) {
+  return `${target}:${chainId}:${bucket}:${chartWindowKey(endBlock)}`;
 }
 
 function chartEndpoint(target) {
@@ -164,14 +170,16 @@ function chartEndpoint(target) {
   throw new Error(`unknown chart target ${target}`);
 }
 
-async function fetchChartData(target, chainId, bucket, refresh = false) {
-  const key = chartCacheKey(target, chainId, bucket);
+async function fetchChartData(target, chainId, bucket, endBlock = null, refresh = false) {
+  const key = chartCacheKey(target, chainId, bucket, endBlock);
   const cached = chartDataCache.get(key);
   const fresh = cached && Date.now() - cached.storedAt <= CHART_CACHE_MS;
   if (!refresh && fresh && cached.data) return cached.data;
   if (!refresh && cached?.pending) return cached.pending;
 
-  const pending = fetchJson(chainPathFor(chainId, chartEndpoint(target), { range: bucket }))
+  const params = { range: bucket };
+  if (endBlock !== null && endBlock !== undefined) params.end_block = String(endBlock);
+  const pending = fetchJson(chainPathFor(chainId, chartEndpoint(target), params))
     .then(data => {
       chartDataCache.set(key, { data, storedAt: Date.now(), pending: null });
       return data;
@@ -196,8 +204,8 @@ async function fetchChartData(target, chainId, bucket, refresh = false) {
   return pending;
 }
 
-function cachedChartData(target, chainId, bucket) {
-  return chartDataCache.get(chartCacheKey(target, chainId, bucket))?.data || null;
+function cachedChartData(target, chainId, bucket, endBlock = null) {
+  return chartDataCache.get(chartCacheKey(target, chainId, bucket, endBlock))?.data || null;
 }
 
 function chartCanvasId(target) {
@@ -208,8 +216,8 @@ function chartInstanceKey(target) {
   return target === 'deploys' ? 'deploys' : 'verified';
 }
 
-function renderChartTarget(target, data, bucket) {
-  lastRenderedCharts[target] = { data, bucket };
+function renderChartTarget(target, data, bucket, endBlock = null) {
+  lastRenderedCharts[target] = { data, bucket, endBlock };
   if (target === 'deploys') renderDeploys(data);
   else renderVerified(data, bucket);
 }
@@ -234,7 +242,7 @@ function showChartLoading(target, bucket) {
 function prefetchChartTarget(target, chainId, epoch) {
   for (const bucket of chartBuckets[target] || []) {
     if (!canRender(epoch, chainId)) return;
-    fetchChartData(target, chainId, bucket).catch(err => {
+    fetchChartData(target, chainId, bucket, chartWindows[target]).catch(err => {
       logDashboardError(`${target} ${bucket} prefetch`, err);
     });
   }
@@ -244,15 +252,21 @@ function prefetchChartBuckets(chainId, epoch) {
   for (const [target, values] of Object.entries(chartBuckets)) {
     for (const bucket of values) {
       if (!canRender(epoch, chainId)) return;
-      fetchChartData(target, chainId, bucket).catch(err => {
+      fetchChartData(target, chainId, bucket, chartWindows[target]).catch(err => {
         logDashboardError(`${target} ${bucket} prefetch`, err);
       });
     }
   }
 }
 
-function dashboardSnapshotKey(chainId, deployBucket = buckets.deploys, verifiedBucket = buckets.verified) {
-  return `blink.dashboard.${chainId}.${deployBucket}.${verifiedBucket}`;
+function dashboardSnapshotKey(
+  chainId,
+  deployBucket = buckets.deploys,
+  verifiedBucket = buckets.verified,
+  deployEndBlock = chartWindows.deploys,
+  verifiedEndBlock = chartWindows.verified,
+) {
+  return `blink.dashboard.${chainId}.${deployBucket}.${chartWindowKey(deployEndBlock)}.${verifiedBucket}.${chartWindowKey(verifiedEndBlock)}`;
 }
 
 function dashboardLatestSnapshotKey(chainId) {
@@ -278,7 +292,13 @@ function readStoredDashboardSnapshot(key) {
 
 function readDashboardSnapshot(chainId) {
   const exact = readStoredDashboardSnapshot(dashboardSnapshotKey(chainId));
-  if (exact && exact.deployBucket === buckets.deploys && exact.verifiedBucket === buckets.verified) {
+  if (
+    exact &&
+    exact.deployBucket === buckets.deploys &&
+    exact.verifiedBucket === buckets.verified &&
+    chartWindowKey(exact.deployEndBlock) === chartWindowKey(chartWindows.deploys) &&
+    chartWindowKey(exact.verifiedEndBlock) === chartWindowKey(chartWindows.verified)
+  ) {
     return exact;
   }
 
@@ -286,7 +306,13 @@ function readDashboardSnapshot(chainId) {
 }
 
 function writeDashboardSnapshot(chainId, payload) {
-  const key = dashboardSnapshotKey(chainId, payload.deployBucket, payload.verifiedBucket);
+  const key = dashboardSnapshotKey(
+    chainId,
+    payload.deployBucket,
+    payload.verifiedBucket,
+    payload.deployEndBlock,
+    payload.verifiedEndBlock,
+  );
   const latestKey = dashboardLatestSnapshotKey(chainId);
   const snapshot = {
     ...payload,
@@ -304,14 +330,14 @@ function writeDashboardSnapshot(chainId, payload) {
 
 function hydrateChartCacheFromSnapshot(chainId, payload) {
   if (payload.deploys) {
-    chartDataCache.set(chartCacheKey('deploys', chainId, payload.deployBucket), {
+    chartDataCache.set(chartCacheKey('deploys', chainId, payload.deployBucket, payload.deployEndBlock), {
       data: payload.deploys,
       storedAt: payload.storedAt || Date.now(),
       pending: null,
     });
   }
   if (payload.verified) {
-    chartDataCache.set(chartCacheKey('verified', chainId, payload.verifiedBucket), {
+    chartDataCache.set(chartCacheKey('verified', chainId, payload.verifiedBucket, payload.verifiedEndBlock), {
       data: payload.verified,
       storedAt: payload.storedAt || Date.now(),
       pending: null,
@@ -323,6 +349,48 @@ function selectedChainId() {
   const selected = chainState.selectedId || 1;
   if (chainState.chains.some(chain => Number(chain.chain_id) === selected)) return selected;
   return Number(chainState.chains[0]?.chain_id || chains[0].chain_id || 1);
+}
+
+function validChartBucket(target, bucket) {
+  return (chartBuckets[target] || []).includes(bucket);
+}
+
+function readChartPrefs() {
+  try {
+    const prefs = JSON.parse(localStorage.getItem(CHART_PREFS_KEY) || '{}');
+    for (const target of ['deploys', 'verified']) {
+      if (validChartBucket(target, prefs?.buckets?.[target])) {
+        buckets[target] = prefs.buckets[target];
+      }
+      const endBlock = prefs?.windows?.[target];
+      chartWindows[target] = Number.isFinite(endBlock) ? endBlock : null;
+    }
+  } catch (err) {
+    console.warn('[blink] failed to read chart preferences', err);
+  }
+}
+
+function writeChartPrefs() {
+  try {
+    localStorage.setItem(
+      CHART_PREFS_KEY,
+      JSON.stringify({
+        buckets: { ...buckets },
+        windows: { ...chartWindows },
+      }),
+    );
+  } catch (err) {
+    console.warn('[blink] failed to write chart preferences', err);
+  }
+}
+
+function syncBucketButtons() {
+  document.querySelectorAll('.seg').forEach(group => {
+    const target = group.dataset.target;
+    group.querySelectorAll('button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.bucket === buckets[target]);
+    });
+  });
 }
 
 function activeChain() {
@@ -721,9 +789,10 @@ function renderDeploys(data) {
 }
 
 async function loadDeploys(chainId = selectedChainId(), epoch = renderEpoch, bucket = buckets.deploys) {
-  const data = await fetchChartData('deploys', chainId, bucket);
+  const endBlock = chartWindows.deploys;
+  const data = await fetchChartData('deploys', chainId, bucket, endBlock);
   if (!canRender(epoch, chainId) || bucket !== buckets.deploys) return null;
-  renderChartTarget('deploys', data, bucket);
+  renderChartTarget('deploys', data, bucket, endBlock);
   return data;
 }
 
@@ -819,9 +888,10 @@ function renderVerified(data, bucket = buckets.verified) {
 }
 
 async function loadVerified(chainId = selectedChainId(), epoch = renderEpoch, bucket = buckets.verified) {
-  const data = await fetchChartData('verified', chainId, bucket);
+  const endBlock = chartWindows.verified;
+  const data = await fetchChartData('verified', chainId, bucket, endBlock);
   if (!canRender(epoch, chainId) || bucket !== buckets.verified) return null;
-  renderChartTarget('verified', data, bucket);
+  renderChartTarget('verified', data, bucket, endBlock);
   return data;
 }
 
@@ -1252,15 +1322,15 @@ function renderDashboardPayload(payload, chainId, epoch) {
   const deploys =
     payload.deployBucket === buckets.deploys
       ? payload.deploys
-      : cachedChartData('deploys', chainId, buckets.deploys);
-  if (deploys) renderChartTarget('deploys', deploys, buckets.deploys);
+      : cachedChartData('deploys', chainId, buckets.deploys, chartWindows.deploys);
+  if (deploys) renderChartTarget('deploys', deploys, buckets.deploys, payload.deployEndBlock);
   else clearCanvasMessage('chart-deploys', 'loading chain data');
 
   const verified =
     payload.verifiedBucket === buckets.verified
       ? payload.verified
-      : cachedChartData('verified', chainId, buckets.verified);
-  if (verified) renderChartTarget('verified', verified, buckets.verified);
+      : cachedChartData('verified', chainId, buckets.verified, chartWindows.verified);
+  if (verified) renderChartTarget('verified', verified, buckets.verified, payload.verifiedEndBlock);
   else clearCanvasMessage('chart-verified', 'loading chain data');
 
   if (payload.sizes) renderSizes(payload.sizes);
@@ -1294,29 +1364,39 @@ function renderCachedDashboard() {
   const chainId = selectedChainId();
   const snapshot = readDashboardSnapshot(chainId);
   if (!snapshot) return false;
+  chartWindows.deploys = snapshot.deployEndBlock ?? null;
+  chartWindows.verified = snapshot.verifiedEndBlock ?? null;
   hydrateChartCacheFromSnapshot(chainId, snapshot);
   return renderDashboardPayload(snapshot, chainId, renderEpoch);
 }
 
 function switchChartBucket(target, bucket) {
   const chainId = selectedChainId();
-  const key = chartCacheKey(target, chainId, bucket);
+  const endBlock = chartWindows[target];
+  const key = chartCacheKey(target, chainId, bucket, endBlock);
   const cached = chartDataCache.get(key);
   const fresh = cached && Date.now() - cached.storedAt <= CHART_CACHE_MS;
 
   if (cached?.data) {
-    renderChartTarget(target, cached.data, bucket);
+    renderChartTarget(target, cached.data, bucket, endBlock);
     if (fresh) return;
-  } else if (lastRenderedCharts[target]?.bucket === bucket) {
-    renderChartTarget(target, lastRenderedCharts[target].data, bucket);
+  } else if (
+    lastRenderedCharts[target]?.bucket === bucket &&
+    chartWindowKey(lastRenderedCharts[target].endBlock) === chartWindowKey(endBlock)
+  ) {
+    renderChartTarget(target, lastRenderedCharts[target].data, bucket, endBlock);
   } else {
     showChartLoading(target, bucket);
   }
 
-  fetchChartData(target, chainId, bucket, Boolean(cached?.data))
+  fetchChartData(target, chainId, bucket, endBlock, Boolean(cached?.data))
     .then(data => {
-      if (chainId === selectedChainId() && buckets[target] === bucket) {
-        renderChartTarget(target, data, bucket);
+      if (
+        chainId === selectedChainId() &&
+        buckets[target] === bucket &&
+        chartWindowKey(chartWindows[target]) === chartWindowKey(endBlock)
+      ) {
+        renderChartTarget(target, data, bucket, endBlock);
       }
     })
     .catch(err => {
@@ -1332,11 +1412,78 @@ function switchChartBucket(target, bucket) {
     });
 }
 
+function chartWindowBounds(data) {
+  const start = Number(data?.range_start_block);
+  const end = Number(data?.range_end_block);
+  const latest = Number(data?.latest_block);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) return null;
+  return {
+    start,
+    end,
+    latest: Number.isFinite(latest) ? latest : end,
+    width: Math.max(1, end - start + 1),
+  };
+}
+
+function panChartWindow(target, direction) {
+  const rendered = lastRenderedCharts[target];
+  const bounds = chartWindowBounds(rendered?.data);
+  if (!bounds) return;
+
+  if (direction < 0) {
+    chartWindows[target] = Math.max(0, bounds.start - 1);
+  } else {
+    if (bounds.end >= bounds.latest) {
+      chartWindows[target] = null;
+      writeChartPrefs();
+      return;
+    }
+    const nextEnd = Math.min(bounds.latest, bounds.end + bounds.width);
+    chartWindows[target] = nextEnd >= bounds.latest ? null : nextEnd;
+  }
+  writeChartPrefs();
+  switchChartBucket(target, buckets[target]);
+}
+
+function attachChartPan() {
+  for (const target of ['deploys', 'verified']) {
+    const canvas = document.getElementById(chartCanvasId(target));
+    if (!canvas) continue;
+    canvas.style.touchAction = 'pan-y';
+
+    let pointerId = null;
+    let startX = 0;
+    let startY = 0;
+
+    canvas.addEventListener('pointerdown', event => {
+      pointerId = event.pointerId;
+      startX = event.clientX;
+      startY = event.clientY;
+      canvas.setPointerCapture(pointerId);
+    });
+
+    canvas.addEventListener('pointerup', event => {
+      if (pointerId !== event.pointerId) return;
+      const dx = event.clientX - startX;
+      const dy = event.clientY - startY;
+      pointerId = null;
+      if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+      panChartWindow(target, dx > 0 ? -1 : 1);
+    });
+
+    canvas.addEventListener('pointercancel', () => {
+      pointerId = null;
+    });
+  }
+}
+
 async function refresh({ reset = false } = {}) {
   const epoch = nextRenderEpoch();
   const chainId = selectedChainId();
   const deployBucket = buckets.deploys;
   const verifiedBucket = buckets.verified;
+  const deployEndBlock = chartWindows.deploys;
+  const verifiedEndBlock = chartWindows.verified;
   const fallback = readDashboardSnapshot(chainId);
   if (fallback) hydrateChartCacheFromSnapshot(chainId, fallback);
   if (reset) {
@@ -1347,15 +1494,17 @@ async function refresh({ reset = false } = {}) {
   const payload = {
     deployBucket,
     verifiedBucket,
+    deployEndBlock,
+    verifiedEndBlock,
     refreshedAt: fallback?.refreshedAt || new Date().toISOString(),
     runtime: fallback?.runtime || null,
     stats: fallback?.stats || null,
     deploys:
       fallback?.deploys ||
-      cachedChartData('deploys', chainId, deployBucket),
+      cachedChartData('deploys', chainId, deployBucket, deployEndBlock),
     verified:
       fallback?.verified ||
-      cachedChartData('verified', chainId, verifiedBucket),
+      cachedChartData('verified', chainId, verifiedBucket, verifiedEndBlock),
     sizes: fallback?.sizes || null,
     compilers: fallback?.compilers || null,
     languages: fallback?.languages || null,
@@ -1398,12 +1547,16 @@ async function refresh({ reset = false } = {}) {
 
   const deploysJob = capture(
     'deployments chart',
-    fetchChartData('deploys', chainId, deployBucket, true),
+    fetchChartData('deploys', chainId, deployBucket, deployEndBlock, true),
   ).then(deploys => {
-    if (!canRender(epoch, chainId) || buckets.deploys !== deployBucket) return deploys;
+    if (
+      !canRender(epoch, chainId) ||
+      buckets.deploys !== deployBucket ||
+      chartWindowKey(chartWindows.deploys) !== chartWindowKey(deployEndBlock)
+    ) return deploys;
     if (deploys) {
       payload.deploys = deploys;
-      renderChartTarget('deploys', deploys, deployBucket);
+      renderChartTarget('deploys', deploys, deployBucket, deployEndBlock);
       markFresh();
       prefetchChartTarget('deploys', chainId, epoch);
     } else if (!payload.deploys) {
@@ -1414,12 +1567,16 @@ async function refresh({ reset = false } = {}) {
 
   const verifiedJob = capture(
     'verification chart',
-    fetchChartData('verified', chainId, verifiedBucket, true),
+    fetchChartData('verified', chainId, verifiedBucket, verifiedEndBlock, true),
   ).then(verified => {
-    if (!canRender(epoch, chainId) || buckets.verified !== verifiedBucket) return verified;
+    if (
+      !canRender(epoch, chainId) ||
+      buckets.verified !== verifiedBucket ||
+      chartWindowKey(chartWindows.verified) !== chartWindowKey(verifiedEndBlock)
+    ) return verified;
     if (verified) {
       payload.verified = verified;
-      renderChartTarget('verified', verified, verifiedBucket);
+      renderChartTarget('verified', verified, verifiedBucket, verifiedEndBlock);
       markFresh();
       prefetchChartTarget('verified', chainId, epoch);
     } else if (!payload.verified) {
@@ -1539,6 +1696,7 @@ function attachBucketToggles() {
         group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         buckets[target] = nextBucket;
+        writeChartPrefs();
         switchChartBucket(target, nextBucket);
       });
     });
@@ -1591,7 +1749,10 @@ function attachChainDropdown() {
   });
 }
 
+readChartPrefs();
+syncBucketButtons();
 attachBucketToggles();
+attachChartPan();
 attachRecentPager();
 attachQueryRunner();
 attachChainDropdown();
