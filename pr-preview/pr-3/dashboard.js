@@ -1,4 +1,6 @@
 const REFRESH_MS = 30_000;
+const CHART_CACHE_MS = 60_000;
+const SNAPSHOT_CACHE_MS = 300_000;
 const palette = {
   accent: '#bdff00',
   accentSoft: 'rgba(189, 255, 0, 0.14)',
@@ -54,7 +56,7 @@ const baseTooltip = {
 const baseChartDefaults = {
   responsive: true,
   maintainAspectRatio: false,
-  animation: { duration: 250 },
+  animation: false,
   interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: {
@@ -73,7 +75,14 @@ const baseChartDefaults = {
 };
 
 const buckets = { deploys: 'day', verified: 'week' };
+const chartBuckets = {
+  deploys: ['hour', 'day', 'week', 'month'],
+  verified: ['day', 'week', 'month'],
+};
 const charts = {};
+const chartDataCache = new Map();
+const dashboardPayloadCache = new Map();
+const lastRenderedCharts = {};
 const recentState = {
   limit: 20,
   page: 0,
@@ -109,6 +118,7 @@ const chainState = {
 };
 
 const API_BASE = 'https://blink-api.mirageprivacy.com';
+let renderEpoch = 0;
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
@@ -144,6 +154,171 @@ async function postJson(path, payload) {
   return data;
 }
 
+function chartCacheKey(target, chainId, bucket) {
+  return `${target}:${chainId}:${bucket}`;
+}
+
+function chartEndpoint(target) {
+  if (target === 'deploys') return '/api/deploys-over-time';
+  if (target === 'verified') return '/api/verified-ratio';
+  throw new Error(`unknown chart target ${target}`);
+}
+
+async function fetchChartData(target, chainId, bucket, refresh = false) {
+  const key = chartCacheKey(target, chainId, bucket);
+  const cached = chartDataCache.get(key);
+  const fresh = cached && Date.now() - cached.storedAt <= CHART_CACHE_MS;
+  if (!refresh && fresh && cached.data) return cached.data;
+  if (!refresh && cached?.pending) return cached.pending;
+
+  const pending = fetchJson(chainPathFor(chainId, chartEndpoint(target), { range: bucket }))
+    .then(data => {
+      chartDataCache.set(key, { data, storedAt: Date.now(), pending: null });
+      return data;
+    })
+    .catch(err => {
+      if (cached?.data) {
+        chartDataCache.set(key, {
+          data: cached.data,
+          storedAt: cached.storedAt,
+          pending: null,
+        });
+      } else {
+        chartDataCache.delete(key);
+      }
+      throw err;
+    });
+  chartDataCache.set(key, {
+    data: cached?.data || null,
+    storedAt: cached?.storedAt || 0,
+    pending,
+  });
+  return pending;
+}
+
+function cachedChartData(target, chainId, bucket) {
+  return chartDataCache.get(chartCacheKey(target, chainId, bucket))?.data || null;
+}
+
+function chartCanvasId(target) {
+  return target === 'deploys' ? 'chart-deploys' : 'chart-verified';
+}
+
+function chartInstanceKey(target) {
+  return target === 'deploys' ? 'deploys' : 'verified';
+}
+
+function renderChartTarget(target, data, bucket) {
+  lastRenderedCharts[target] = { data, bucket };
+  if (target === 'deploys') renderDeploys(data);
+  else renderVerified(data, bucket);
+}
+
+function bucketDisplayName(bucket) {
+  if (bucket === 'hour') return '1H';
+  if (bucket === 'day') return '1D';
+  if (bucket === 'week') return '1W';
+  if (bucket === 'month') return '1M';
+  return bucket;
+}
+
+function showChartLoading(target, bucket) {
+  const key = chartInstanceKey(target);
+  if (charts[key]) {
+    charts[key].destroy();
+    charts[key] = null;
+  }
+  clearCanvasMessage(chartCanvasId(target), `loading ${bucketDisplayName(bucket)} data`);
+}
+
+function prefetchChartTarget(target, chainId, epoch) {
+  for (const bucket of chartBuckets[target] || []) {
+    if (!canRender(epoch, chainId)) return;
+    fetchChartData(target, chainId, bucket).catch(err => {
+      logDashboardError(`${target} ${bucket} prefetch`, err);
+    });
+  }
+}
+
+function prefetchChartBuckets(chainId, epoch) {
+  for (const [target, values] of Object.entries(chartBuckets)) {
+    for (const bucket of values) {
+      if (!canRender(epoch, chainId)) return;
+      fetchChartData(target, chainId, bucket).catch(err => {
+        logDashboardError(`${target} ${bucket} prefetch`, err);
+      });
+    }
+  }
+}
+
+function dashboardSnapshotKey(chainId, deployBucket = buckets.deploys, verifiedBucket = buckets.verified) {
+  return `blink.dashboard.${chainId}.${deployBucket}.${verifiedBucket}`;
+}
+
+function dashboardLatestSnapshotKey(chainId) {
+  return `blink.dashboard.${chainId}.latest`;
+}
+
+function readStoredDashboardSnapshot(key) {
+  const memorySnapshot = dashboardPayloadCache.get(key);
+  if (memorySnapshot) return memorySnapshot;
+
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const snapshot = JSON.parse(raw);
+    if (!snapshot?.storedAt || Date.now() - snapshot.storedAt > SNAPSHOT_CACHE_MS) return null;
+    dashboardPayloadCache.set(key, snapshot);
+    return snapshot;
+  } catch (err) {
+    console.warn('[blink] failed to read dashboard snapshot', err);
+    return null;
+  }
+}
+
+function readDashboardSnapshot(chainId) {
+  const exact = readStoredDashboardSnapshot(dashboardSnapshotKey(chainId));
+  if (exact && exact.deployBucket === buckets.deploys && exact.verifiedBucket === buckets.verified) {
+    return exact;
+  }
+
+  return readStoredDashboardSnapshot(dashboardLatestSnapshotKey(chainId));
+}
+
+function writeDashboardSnapshot(chainId, payload) {
+  const key = dashboardSnapshotKey(chainId, payload.deployBucket, payload.verifiedBucket);
+  const latestKey = dashboardLatestSnapshotKey(chainId);
+  const snapshot = {
+    ...payload,
+    storedAt: Date.now(),
+  };
+  dashboardPayloadCache.set(key, snapshot);
+  dashboardPayloadCache.set(latestKey, snapshot);
+  try {
+    sessionStorage.setItem(key, JSON.stringify(snapshot));
+    sessionStorage.setItem(latestKey, JSON.stringify(snapshot));
+  } catch (err) {
+    console.warn('[blink] failed to write dashboard snapshot', err);
+  }
+}
+
+function hydrateChartCacheFromSnapshot(chainId, payload) {
+  if (payload.deploys) {
+    chartDataCache.set(chartCacheKey('deploys', chainId, payload.deployBucket), {
+      data: payload.deploys,
+      storedAt: payload.storedAt || Date.now(),
+      pending: null,
+    });
+  }
+  if (payload.verified) {
+    chartDataCache.set(chartCacheKey('verified', chainId, payload.verifiedBucket), {
+      data: payload.verified,
+      storedAt: payload.storedAt || Date.now(),
+      pending: null,
+    });
+  }
+}
+
 function selectedChainId() {
   const selected = chainState.selectedId || 1;
   if (chainState.chains.some(chain => Number(chain.chain_id) === selected)) return selected;
@@ -158,9 +333,9 @@ function activeChain() {
   );
 }
 
-function chainPath(path, params = {}) {
+function chainPathFor(chainId, path, params = {}) {
   const query = new URLSearchParams(params);
-  query.set('chain_id', String(selectedChainId()));
+  query.set('chain_id', String(chainId));
   return `${path}?${query.toString()}`;
 }
 
@@ -174,6 +349,16 @@ function resetRecentState() {
   recentState.cursors = [null];
   recentState.nextCursor = null;
   recentState.hasMore = false;
+  recentState.loading = false;
+}
+
+function nextRenderEpoch() {
+  renderEpoch += 1;
+  return renderEpoch;
+}
+
+function canRender(epoch, chainId) {
+  return epoch === renderEpoch && chainId === selectedChainId();
 }
 
 function defaultSqlForChain(chainId = selectedChainId()) {
@@ -232,6 +417,36 @@ function clearCharts(message = 'loading chain data') {
   clearCanvasMessage('chart-standards', message);
 }
 
+function resetMetrics(message = 'loading chain data') {
+  document.getElementById('m-total').textContent = '—';
+  document.getElementById('m-block-range').textContent = message;
+  document.getElementById('m-verified').textContent = '—';
+  document.getElementById('m-verified-pct').textContent = message;
+  document.getElementById('m-unverified').textContent = '—';
+  document.getElementById('m-coverage').textContent = '—';
+  document.getElementById('m-last-block').textContent = '—';
+  document.getElementById('m-last-block-time').textContent = message;
+  document.getElementById('m-lang-top').textContent = '—';
+  document.getElementById('m-lang-sub').textContent = message;
+}
+
+function resetRecentTable(message = 'loading chain data') {
+  const tbody = document.querySelector('#recent-table tbody');
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="6" class="query-empty">${escapeHtml(message)}</td></tr>`;
+  }
+  document.getElementById('recent-range').textContent = '—';
+  updateRecentPager();
+}
+
+function resetDashboardForChain() {
+  resetMetrics('loading chain data');
+  document.getElementById('compilers-source').textContent = 'decoded';
+  document.getElementById('standards-coverage').textContent = '— decoded';
+  clearCharts('loading chain data');
+  resetRecentTable('loading chain data');
+}
+
 function logDashboardError(context, err) {
   console.error(`[blink] ${context}`, err.detail || err.message, err);
 }
@@ -243,6 +458,12 @@ async function capture(context, work) {
     logDashboardError(context, err);
     return null;
   }
+}
+
+function updateFooterRefresh(isoString = new Date().toISOString()) {
+  const refreshDate = new Date(isoString);
+  const ts = refreshDate.toISOString().slice(11, 19) + ' UTC';
+  document.getElementById('footer-refresh').textContent = `last refresh ${ts}`;
 }
 
 function chainIcon(key) {
@@ -270,14 +491,17 @@ function selectChain(chainId) {
   }
   chainState.selectedId = chainId;
   localStorage.setItem('blink.chain_id', String(chainId));
+  nextRenderEpoch();
   resetRecentState();
-  clearCharts();
   renderChainDropdown();
   updateChainMeta();
   syncDefaultSqlToChain();
   clearQueryResult('run query for selected chain');
   setChainMenuOpen(false);
-  refresh();
+  if (!renderCachedDashboard()) {
+    resetDashboardForChain();
+  }
+  refresh({ reset: false });
 }
 
 function renderChainDropdown() {
@@ -426,8 +650,7 @@ function renderRuntimeStatus(runtime) {
   setStatus('connected', runtime.read_only ? `read only · ${ts}` : `snapshot · ${ts}`);
 }
 
-async function loadStats() {
-  const s = await fetchJson(chainPath('/api/stats'));
+function renderStats(s) {
   document.getElementById('m-total').textContent = fmtFull(s.total_contracts);
   document.getElementById('m-block-range').textContent =
     s.first_block === 0 && s.last_block === 0
@@ -447,6 +670,13 @@ async function loadStats() {
   document.getElementById('m-last-block-time').textContent = `updated ${fmtTime(s.last_updated)}`;
 }
 
+async function loadStats(chainId = selectedChainId(), epoch = renderEpoch) {
+  const s = await fetchJson(chainPathFor(chainId, '/api/stats'));
+  if (!canRender(epoch, chainId)) return null;
+  renderStats(s);
+  return s;
+}
+
 function renderStatsUnavailable() {
   document.getElementById('m-total').textContent = '—';
   document.getElementById('m-block-range').textContent = 'data unavailable';
@@ -458,8 +688,7 @@ function renderStatsUnavailable() {
   document.getElementById('m-last-block-time').textContent = 'waiting for API';
 }
 
-async function loadDeploys() {
-  const data = await fetchJson(chainPath('/api/deploys-over-time', { bucket: buckets.deploys }));
+function renderDeploys(data) {
   const points = data.buckets.map(b => ({ x: b.timestamp, y: b.count }));
   const ctx = document.getElementById('chart-deploys');
   if (charts.deploys) charts.deploys.destroy();
@@ -491,8 +720,14 @@ async function loadDeploys() {
   });
 }
 
-async function loadVerified() {
-  const data = await fetchJson(chainPath('/api/verified-ratio', { bucket: buckets.verified }));
+async function loadDeploys(chainId = selectedChainId(), epoch = renderEpoch, bucket = buckets.deploys) {
+  const data = await fetchChartData('deploys', chainId, bucket);
+  if (!canRender(epoch, chainId) || bucket !== buckets.deploys) return null;
+  renderChartTarget('deploys', data, bucket);
+  return data;
+}
+
+function renderVerified(data, bucket = buckets.verified) {
   const all = data.buckets || [];
 
   const ctx = document.getElementById('chart-verified');
@@ -523,7 +758,7 @@ async function loadVerified() {
     };
   });
 
-  const labels = all.map(b => bucketLabel(b, buckets.verified));
+  const labels = all.map(b => bucketLabel(b, bucket));
 
   charts.verified = new Chart(ctx, {
     type: 'line',
@@ -583,8 +818,14 @@ async function loadVerified() {
   });
 }
 
-async function loadSizes() {
-  const data = await fetchJson(chainPath('/api/bytecode-sizes'));
+async function loadVerified(chainId = selectedChainId(), epoch = renderEpoch, bucket = buckets.verified) {
+  const data = await fetchChartData('verified', chainId, bucket);
+  if (!canRender(epoch, chainId) || bucket !== buckets.verified) return null;
+  renderChartTarget('verified', data, bucket);
+  return data;
+}
+
+function renderSizes(data) {
   const labels = data.bins.map(b => b.label || `${fmtBytes(b.size_min)}-${fmtBytes(b.size_max)}`);
   const shortLabels = labels;
   const counts = data.bins.map(b => b.count);
@@ -640,8 +881,14 @@ async function loadSizes() {
   });
 }
 
-async function loadLanguages() {
-  const data = await fetchJson(chainPath('/api/languages'));
+async function loadSizes(chainId = selectedChainId(), epoch = renderEpoch) {
+  const data = await fetchJson(chainPathFor(chainId, '/api/bytecode-sizes'));
+  if (!canRender(epoch, chainId)) return null;
+  renderSizes(data);
+  return data;
+}
+
+function renderLanguages(data) {
   const langs = data.languages || [];
   const total = langs.reduce((a, b) => a + b.count, 0);
   if (total === 0) {
@@ -660,8 +907,14 @@ async function loadLanguages() {
     [...knownParts, unknownPart].filter(Boolean).join(' · ') || `${fmtNumber(total)} decoded`;
 }
 
-async function loadStandards() {
-  const data = await fetchJson(chainPath('/api/standards'));
+async function loadLanguages(chainId = selectedChainId(), epoch = renderEpoch) {
+  const data = await fetchJson(chainPathFor(chainId, '/api/languages'));
+  if (!canRender(epoch, chainId)) return null;
+  renderLanguages(data);
+  return data;
+}
+
+function renderStandards(data) {
   const total = data.total_decoded || 0;
   const cov = document.getElementById('standards-coverage');
   cov.textContent = total > 0 ? `${fmtNumber(total)} decoded` : 'no data';
@@ -749,8 +1002,14 @@ async function loadStandards() {
   });
 }
 
-async function loadCompilers() {
-  const data = await fetchJson(chainPath('/api/compilers', { limit: 12 }));
+async function loadStandards(chainId = selectedChainId(), epoch = renderEpoch) {
+  const data = await fetchJson(chainPathFor(chainId, '/api/standards'));
+  if (!canRender(epoch, chainId)) return null;
+  renderStandards(data);
+  return data;
+}
+
+function renderCompilers(data) {
   if (!data.compilers.length) {
     const ctx = document.getElementById('chart-compilers');
     if (charts.compilers) charts.compilers.destroy();
@@ -806,6 +1065,13 @@ async function loadCompilers() {
       },
     },
   });
+}
+
+async function loadCompilers(chainId = selectedChainId(), epoch = renderEpoch) {
+  const data = await fetchJson(chainPathFor(chainId, '/api/compilers', { limit: 12 }));
+  if (!canRender(epoch, chainId)) return null;
+  renderCompilers(data);
+  return data;
 }
 
 function shortAddr(addr) {
@@ -895,59 +1161,79 @@ async function runSqlQuery() {
   }
 }
 
-async function loadRecent() {
-  if (recentState.loading) return;
+function recentPathFor(chainId) {
+  const cursor = recentState.cursors[recentState.page];
+  const params = new URLSearchParams({ limit: String(recentState.limit) });
+  if (cursor) {
+    params.set('before_block', String(cursor.block_number));
+    params.set('before_create_index', String(cursor.create_index));
+  }
+  params.set('chain_id', String(chainId));
+  return `/api/recent?${params.toString()}`;
+}
+
+function renderRecent(data) {
+  const tbody = document.querySelector('#recent-table tbody');
+  tbody.innerHTML = '';
+  for (const c of data.contracts) {
+    const tr = document.createElement('tr');
+    const safeAddress = escapeHtml(c.address);
+    const safeCompiler = c.compiler_version
+      ? escapeHtml(c.compiler_version.replace(/^v/, '').split('+')[0])
+      : '<span class="dim-text">—</span>';
+    const name = c.contract_name
+      ? `<span title="${escapeHtml(c.contract_name)}">${escapeHtml(c.contract_name)}</span>`
+      : '<span class="dim-text">—</span>';
+    tr.innerHTML = `
+      <td>${fmtFull(c.block_number)}</td>
+      <td><a class="address" href="${explorerAddressUrl(c.address)}" target="_blank" rel="noopener" title="${safeAddress}">${escapeHtml(shortAddr(c.address))}</a></td>
+      <td>${name}</td>
+      <td>${safeCompiler}</td>
+      <td>${fmtBytes(c.n_code_bytes)}</td>
+      <td>${verifiedBadge(c.is_verified)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  recentState.hasMore = Boolean(data.has_more);
+  const last = data.contracts[data.contracts.length - 1];
+  recentState.nextCursor = last
+    ? { block_number: last.block_number, create_index: last.create_index }
+    : null;
+  const start = recentState.page * recentState.limit + 1;
+  const end = recentState.page * recentState.limit + data.contracts.length;
+  document.getElementById('recent-range').textContent =
+    data.contracts.length === 0 ? '0' : `${fmtFull(start)} – ${fmtFull(end)}`;
+  updateRecentPager();
+}
+
+function renderRecentUnavailable() {
+  const tbody = document.querySelector('#recent-table tbody');
+  tbody.innerHTML = '<tr><td colspan="6" class="query-empty">recent deployments unavailable</td></tr>';
+  recentState.hasMore = false;
+  recentState.nextCursor = null;
+  document.getElementById('recent-range').textContent = '—';
+  updateRecentPager();
+}
+
+async function loadRecent(chainId = selectedChainId(), epoch = renderEpoch) {
+  if (recentState.loading) return null;
   recentState.loading = true;
   updateRecentPager();
   try {
-    const cursor = recentState.cursors[recentState.page];
-    const params = new URLSearchParams({ limit: String(recentState.limit) });
-    if (cursor) {
-      params.set('before_block', String(cursor.block_number));
-      params.set('before_create_index', String(cursor.create_index));
-    }
-    params.set('chain_id', String(selectedChainId()));
-    const data = await fetchJson(`/api/recent?${params.toString()}`);
-    const tbody = document.querySelector('#recent-table tbody');
-    tbody.innerHTML = '';
-    for (const c of data.contracts) {
-      const tr = document.createElement('tr');
-      const safeAddress = escapeHtml(c.address);
-      const safeCompiler = c.compiler_version
-        ? escapeHtml(c.compiler_version.replace(/^v/, '').split('+')[0])
-        : '<span class="dim-text">—</span>';
-      const name = c.contract_name
-        ? `<span title="${escapeHtml(c.contract_name)}">${escapeHtml(c.contract_name)}</span>`
-        : '<span class="dim-text">—</span>';
-      tr.innerHTML = `
-        <td>${fmtFull(c.block_number)}</td>
-        <td><a class="address" href="${explorerAddressUrl(c.address)}" target="_blank" rel="noopener" title="${safeAddress}">${escapeHtml(shortAddr(c.address))}</a></td>
-        <td>${name}</td>
-        <td>${safeCompiler}</td>
-        <td>${fmtBytes(c.n_code_bytes)}</td>
-        <td>${verifiedBadge(c.is_verified)}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-    recentState.hasMore = Boolean(data.has_more);
-    const last = data.contracts[data.contracts.length - 1];
-    recentState.nextCursor = last
-      ? { block_number: last.block_number, create_index: last.create_index }
-      : null;
-    const start = recentState.page * recentState.limit + 1;
-    const end = recentState.page * recentState.limit + data.contracts.length;
-    document.getElementById('recent-range').textContent =
-      data.contracts.length === 0 ? '0' : `${fmtFull(start)} – ${fmtFull(end)}`;
+    const data = await fetchJson(recentPathFor(chainId));
+    if (!canRender(epoch, chainId)) return null;
+    renderRecent(data);
+    return data;
   } catch (err) {
+    if (!canRender(epoch, chainId)) return null;
     logDashboardError('recent deployments', err);
-    const tbody = document.querySelector('#recent-table tbody');
-    tbody.innerHTML = '<tr><td colspan="6" class="query-empty">recent deployments unavailable</td></tr>';
-    recentState.hasMore = false;
-    recentState.nextCursor = null;
-    document.getElementById('recent-range').textContent = '—';
+    renderRecentUnavailable();
+    return null;
   } finally {
-    recentState.loading = false;
-    updateRecentPager();
+    if (canRender(epoch, chainId)) {
+      recentState.loading = false;
+      updateRecentPager();
+    }
   }
 }
 
@@ -957,23 +1243,290 @@ function updateRecentPager() {
     recentState.loading || !recentState.hasMore || !recentState.nextCursor;
 }
 
-async function refresh() {
-  const results = await Promise.all([
-    capture('runtime', fetchJson('/api/runtime')),
-    capture('stats', loadStats()),
-    capture('deployments chart', loadDeploys()),
-    capture('verification chart', loadVerified()),
-    capture('bytecode size chart', loadSizes()),
-    capture('compiler chart', loadCompilers()),
-    capture('language summary', loadLanguages()),
-    capture('standards chart', loadStandards()),
-    loadRecent(),
+function renderDashboardPayload(payload, chainId, epoch) {
+  if (!canRender(epoch, chainId)) return false;
+
+  if (payload.stats) renderStats(payload.stats);
+  else renderStatsUnavailable();
+
+  const deploys =
+    payload.deployBucket === buckets.deploys
+      ? payload.deploys
+      : cachedChartData('deploys', chainId, buckets.deploys);
+  if (deploys) renderChartTarget('deploys', deploys, buckets.deploys);
+  else clearCanvasMessage('chart-deploys', 'loading chain data');
+
+  const verified =
+    payload.verifiedBucket === buckets.verified
+      ? payload.verified
+      : cachedChartData('verified', chainId, buckets.verified);
+  if (verified) renderChartTarget('verified', verified, buckets.verified);
+  else clearCanvasMessage('chart-verified', 'loading chain data');
+
+  if (payload.sizes) renderSizes(payload.sizes);
+  else clearCanvasMessage('chart-sizes', 'size data unavailable');
+
+  if (payload.compilers) renderCompilers(payload.compilers);
+  else clearCanvasMessage('chart-compilers', 'compiler data unavailable');
+
+  if (payload.languages) renderLanguages(payload.languages);
+  else {
+    document.getElementById('m-lang-top').textContent = '—';
+    document.getElementById('m-lang-sub').textContent = 'language data unavailable';
+  }
+
+  if (payload.standards) renderStandards(payload.standards);
+  else {
+    document.getElementById('standards-coverage').textContent = 'unavailable';
+    clearCanvasMessage('chart-standards', 'standards unavailable');
+  }
+
+  recentState.loading = false;
+  if (payload.recent) renderRecent(payload.recent);
+  else renderRecentUnavailable();
+
+  renderRuntimeStatus(payload.runtime);
+  updateFooterRefresh(payload.refreshedAt || new Date().toISOString());
+  return true;
+}
+
+function renderCachedDashboard() {
+  const chainId = selectedChainId();
+  const snapshot = readDashboardSnapshot(chainId);
+  if (!snapshot) return false;
+  hydrateChartCacheFromSnapshot(chainId, snapshot);
+  return renderDashboardPayload(snapshot, chainId, renderEpoch);
+}
+
+function switchChartBucket(target, bucket) {
+  const chainId = selectedChainId();
+  const key = chartCacheKey(target, chainId, bucket);
+  const cached = chartDataCache.get(key);
+  const fresh = cached && Date.now() - cached.storedAt <= CHART_CACHE_MS;
+
+  if (cached?.data) {
+    renderChartTarget(target, cached.data, bucket);
+    if (fresh) return;
+  } else if (lastRenderedCharts[target]?.bucket === bucket) {
+    renderChartTarget(target, lastRenderedCharts[target].data, bucket);
+  } else {
+    showChartLoading(target, bucket);
+  }
+
+  fetchChartData(target, chainId, bucket, Boolean(cached?.data))
+    .then(data => {
+      if (chainId === selectedChainId() && buckets[target] === bucket) {
+        renderChartTarget(target, data, bucket);
+      }
+    })
+    .catch(err => {
+      logDashboardError(`${target} ${bucket}`, err);
+      if (
+        chainId === selectedChainId() &&
+        buckets[target] === bucket &&
+        !cached?.data &&
+        !charts[chartInstanceKey(target)]
+      ) {
+        clearCanvasMessage(chartCanvasId(target), `${target} unavailable`);
+      }
+    });
+}
+
+async function refresh({ reset = false } = {}) {
+  const epoch = nextRenderEpoch();
+  const chainId = selectedChainId();
+  const deployBucket = buckets.deploys;
+  const verifiedBucket = buckets.verified;
+  const fallback = readDashboardSnapshot(chainId);
+  if (fallback) hydrateChartCacheFromSnapshot(chainId, fallback);
+  if (reset) {
+    resetRecentState();
+    resetDashboardForChain();
+  }
+
+  const payload = {
+    deployBucket,
+    verifiedBucket,
+    refreshedAt: fallback?.refreshedAt || new Date().toISOString(),
+    runtime: fallback?.runtime || null,
+    stats: fallback?.stats || null,
+    deploys:
+      fallback?.deploys ||
+      cachedChartData('deploys', chainId, deployBucket),
+    verified:
+      fallback?.verified ||
+      cachedChartData('verified', chainId, verifiedBucket),
+    sizes: fallback?.sizes || null,
+    compilers: fallback?.compilers || null,
+    languages: fallback?.languages || null,
+    standards: fallback?.standards || null,
+    recent: fallback?.recent || null,
+  };
+  let hasFreshData = false;
+  const markFresh = () => {
+    hasFreshData = true;
+    payload.refreshedAt = new Date().toISOString();
+    updateFooterRefresh(payload.refreshedAt);
+  };
+
+  recentState.loading = true;
+  updateRecentPager();
+
+  const runtimeJob = capture('runtime', fetchJson('/api/runtime')).then(runtime => {
+    if (!canRender(epoch, chainId)) return runtime;
+    if (runtime) {
+      payload.runtime = runtime;
+      renderRuntimeStatus(runtime);
+      markFresh();
+    } else {
+      renderRuntimeStatus(payload.runtime);
+    }
+    return runtime;
+  });
+
+  const statsJob = capture('stats', fetchJson(chainPathFor(chainId, '/api/stats'))).then(stats => {
+    if (!canRender(epoch, chainId)) return stats;
+    if (stats) {
+      payload.stats = stats;
+      renderStats(stats);
+      markFresh();
+    } else if (!payload.stats) {
+      renderStatsUnavailable();
+    }
+    return stats;
+  });
+
+  const deploysJob = capture(
+    'deployments chart',
+    fetchChartData('deploys', chainId, deployBucket, true),
+  ).then(deploys => {
+    if (!canRender(epoch, chainId) || buckets.deploys !== deployBucket) return deploys;
+    if (deploys) {
+      payload.deploys = deploys;
+      renderChartTarget('deploys', deploys, deployBucket);
+      markFresh();
+      prefetchChartTarget('deploys', chainId, epoch);
+    } else if (!payload.deploys) {
+      clearCanvasMessage('chart-deploys', 'deployments unavailable');
+    }
+    return deploys;
+  });
+
+  const verifiedJob = capture(
+    'verification chart',
+    fetchChartData('verified', chainId, verifiedBucket, true),
+  ).then(verified => {
+    if (!canRender(epoch, chainId) || buckets.verified !== verifiedBucket) return verified;
+    if (verified) {
+      payload.verified = verified;
+      renderChartTarget('verified', verified, verifiedBucket);
+      markFresh();
+      prefetchChartTarget('verified', chainId, epoch);
+    } else if (!payload.verified) {
+      clearCanvasMessage('chart-verified', 'verification unavailable');
+    }
+    return verified;
+  });
+
+  prefetchChartBuckets(chainId, epoch);
+
+  const sizesJob = capture(
+    'bytecode size chart',
+    fetchJson(chainPathFor(chainId, '/api/bytecode-sizes')),
+  ).then(sizes => {
+    if (!canRender(epoch, chainId)) return sizes;
+    if (sizes) {
+      payload.sizes = sizes;
+      renderSizes(sizes);
+      markFresh();
+    } else if (!payload.sizes) {
+      clearCanvasMessage('chart-sizes', 'size data unavailable');
+    }
+    return sizes;
+  });
+
+  const compilersJob = capture(
+    'compiler chart',
+    fetchJson(chainPathFor(chainId, '/api/compilers', { limit: 12 })),
+  ).then(compilers => {
+    if (!canRender(epoch, chainId)) return compilers;
+    if (compilers) {
+      payload.compilers = compilers;
+      renderCompilers(compilers);
+      markFresh();
+    } else if (!payload.compilers) {
+      clearCanvasMessage('chart-compilers', 'compiler data unavailable');
+    }
+    return compilers;
+  });
+
+  const languagesJob = capture(
+    'language summary',
+    fetchJson(chainPathFor(chainId, '/api/languages')),
+  ).then(languages => {
+    if (!canRender(epoch, chainId)) return languages;
+    if (languages) {
+      payload.languages = languages;
+      renderLanguages(languages);
+      markFresh();
+    } else if (!payload.languages) {
+      document.getElementById('m-lang-top').textContent = '—';
+      document.getElementById('m-lang-sub').textContent = 'language data unavailable';
+    }
+    return languages;
+  });
+
+  const standardsJob = capture(
+    'standards chart',
+    fetchJson(chainPathFor(chainId, '/api/standards')),
+  ).then(standards => {
+    if (!canRender(epoch, chainId)) return standards;
+    if (standards) {
+      payload.standards = standards;
+      renderStandards(standards);
+      markFresh();
+    } else if (!payload.standards) {
+      document.getElementById('standards-coverage').textContent = 'unavailable';
+      clearCanvasMessage('chart-standards', 'standards unavailable');
+    }
+    return standards;
+  });
+
+  const recentJob = capture('recent deployments', fetchJson(recentPathFor(chainId)))
+    .then(recent => {
+      if (!canRender(epoch, chainId)) return recent;
+      recentState.loading = false;
+      if (recent) {
+        payload.recent = recent;
+        renderRecent(recent);
+        markFresh();
+      } else if (!payload.recent) {
+        renderRecentUnavailable();
+      } else {
+        updateRecentPager();
+      }
+      return recent;
+    })
+    .finally(() => {
+      if (canRender(epoch, chainId)) {
+        recentState.loading = false;
+        updateRecentPager();
+      }
+    });
+
+  await Promise.all([
+    runtimeJob,
+    statsJob,
+    deploysJob,
+    verifiedJob,
+    sizesJob,
+    compilersJob,
+    languagesJob,
+    standardsJob,
+    recentJob,
   ]);
-  const runtime = results[0];
-  if (results[1] === null) renderStatsUnavailable();
-  const ts = new Date().toISOString().slice(11, 19) + ' UTC';
-  renderRuntimeStatus(runtime);
-  document.getElementById('footer-refresh').textContent = `last refresh ${ts}`;
+  if (!canRender(epoch, chainId)) return;
+  if (hasFreshData || fallback) writeDashboardSnapshot(chainId, payload);
 }
 
 function attachBucketToggles() {
@@ -981,11 +1534,12 @@ function attachBucketToggles() {
     const target = group.dataset.target;
     group.querySelectorAll('button').forEach(btn => {
       btn.addEventListener('click', () => {
+        const nextBucket = btn.dataset.bucket;
+        if (buckets[target] === nextBucket) return;
         group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        buckets[target] = btn.dataset.bucket;
-        if (target === 'deploys') loadDeploys().catch(console.error);
-        if (target === 'verified') loadVerified().catch(console.error);
+        buckets[target] = nextBucket;
+        switchChartBucket(target, nextBucket);
       });
     });
   });
@@ -1043,5 +1597,19 @@ attachQueryRunner();
 attachChainDropdown();
 renderChainDropdown();
 updateChainMeta();
-loadChains().finally(refresh);
-setInterval(refresh, REFRESH_MS);
+resetDashboardForChain();
+
+async function startDashboard() {
+  await loadChains();
+  const hadSnapshot = renderCachedDashboard();
+  if (!hadSnapshot) {
+    resetDashboardForChain();
+  }
+  refresh({ reset: false });
+}
+
+startDashboard().catch(err => {
+  logDashboardError('startup', err);
+  refresh({ reset: false }).catch(console.error);
+});
+setInterval(() => refresh({ reset: false }), REFRESH_MS);
