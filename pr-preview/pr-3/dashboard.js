@@ -239,26 +239,6 @@ function showChartLoading(target, bucket) {
   clearCanvasMessage(chartCanvasId(target), `loading ${bucketDisplayName(bucket)} data`);
 }
 
-function prefetchChartTarget(target, chainId, epoch) {
-  for (const bucket of chartBuckets[target] || []) {
-    if (!canRender(epoch, chainId)) return;
-    fetchChartData(target, chainId, bucket, chartWindows[target]).catch(err => {
-      logDashboardError(`${target} ${bucket} prefetch`, err);
-    });
-  }
-}
-
-function prefetchChartBuckets(chainId, epoch) {
-  for (const [target, values] of Object.entries(chartBuckets)) {
-    for (const bucket of values) {
-      if (!canRender(epoch, chainId)) return;
-      fetchChartData(target, chainId, bucket, chartWindows[target]).catch(err => {
-        logDashboardError(`${target} ${bucket} prefetch`, err);
-      });
-    }
-  }
-}
-
 function dashboardSnapshotKey(
   chainId,
   deployBucket = buckets.deploys,
@@ -1547,7 +1527,7 @@ async function refresh({ reset = false } = {}) {
 
   const deploysJob = capture(
     'deployments chart',
-    fetchChartData('deploys', chainId, deployBucket, deployEndBlock, true),
+    fetchChartData('deploys', chainId, deployBucket, deployEndBlock),
   ).then(deploys => {
     if (
       !canRender(epoch, chainId) ||
@@ -1558,7 +1538,6 @@ async function refresh({ reset = false } = {}) {
       payload.deploys = deploys;
       renderChartTarget('deploys', deploys, deployBucket, deployEndBlock);
       markFresh();
-      prefetchChartTarget('deploys', chainId, epoch);
     } else if (!payload.deploys) {
       clearCanvasMessage('chart-deploys', 'deployments unavailable');
     }
@@ -1567,7 +1546,7 @@ async function refresh({ reset = false } = {}) {
 
   const verifiedJob = capture(
     'verification chart',
-    fetchChartData('verified', chainId, verifiedBucket, verifiedEndBlock, true),
+    fetchChartData('verified', chainId, verifiedBucket, verifiedEndBlock),
   ).then(verified => {
     if (
       !canRender(epoch, chainId) ||
@@ -1578,14 +1557,11 @@ async function refresh({ reset = false } = {}) {
       payload.verified = verified;
       renderChartTarget('verified', verified, verifiedBucket, verifiedEndBlock);
       markFresh();
-      prefetchChartTarget('verified', chainId, epoch);
     } else if (!payload.verified) {
       clearCanvasMessage('chart-verified', 'verification unavailable');
     }
     return verified;
   });
-
-  prefetchChartBuckets(chainId, epoch);
 
   const sizesJob = capture(
     'bytecode size chart',
