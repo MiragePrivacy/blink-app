@@ -28,9 +28,10 @@ configureChartDefaults(Chart);
 
 const buckets = { deploys: 'day', verified: 'week' };
 const chartWindows = { deploys: null, verified: null };
+const customRanges = { deploys: null, verified: null };
 const chartBuckets = {
-  deploys: ['hour', 'day', 'week', 'month'],
-  verified: ['day', 'week', 'month'],
+  deploys: ['hour', 'day', 'week', 'month', 'custom'],
+  verified: ['day', 'week', 'month', 'custom'],
 };
 const charts = {};
 const chartDataCache = new Map();
@@ -57,8 +58,20 @@ function chartWindowKey(endBlock = null) {
   return endBlock === null || endBlock === undefined ? 'latest' : String(endBlock);
 }
 
-function chartCacheKey(target, chainId, bucket, endBlock = null) {
-  return `${target}:${chainId}:${bucket}:${chartWindowKey(endBlock)}`;
+function chartSelectionKey(bucket, endBlock = null, customRange = null) {
+  if (bucket === 'custom' && customRange) {
+    if (customRange.type === 'block') {
+      return `custom:block:${customRange.start_block}:${customRange.end_block}`;
+    }
+    if (customRange.type === 'time') {
+      return `custom:time:${customRange.start_time}:${customRange.end_time}`;
+    }
+  }
+  return `${bucket}:${chartWindowKey(endBlock)}`;
+}
+
+function chartCacheKey(target, chainId, bucket, endBlock = null, customRange = null) {
+  return `${target}:${chainId}:${chartSelectionKey(bucket, endBlock, customRange)}`;
 }
 
 function hasChartBuckets(data) {
@@ -75,14 +88,21 @@ function chartEndpoint(target) {
   throw new Error(`unknown chart target ${target}`);
 }
 
-async function fetchChartData(target, chainId, bucket, endBlock = null, refresh = false) {
-  const key = chartCacheKey(target, chainId, bucket, endBlock);
+async function fetchChartData(
+  target,
+  chainId,
+  bucket,
+  endBlock = null,
+  customRange = null,
+  refresh = false,
+) {
+  const key = chartCacheKey(target, chainId, bucket, endBlock, customRange);
   const cached = chartDataCache.get(key);
   const fresh = cached && Date.now() - cached.storedAt <= CHART_CACHE_MS;
   if (!refresh && fresh && shouldUseCachedChartData(cached.data)) return cached.data;
   if (!refresh && cached?.pending) return cached.pending;
 
-  const params = chartRequestParams(bucket, endBlock);
+  const params = chartRequestParams(bucket, endBlock, customRange);
   const pending = fetchJson(chainPathFor(chainId, chartEndpoint(target), params))
     .then(data => {
       if (hasChartBuckets(data)) {
@@ -112,22 +132,35 @@ async function fetchChartData(target, chainId, bucket, endBlock = null, refresh 
   return pending;
 }
 
-function chartRequestParams(bucket, endBlock = null) {
-  const params = bucket === 'week' || bucket === 'month'
-    ? { bucket }
-    : { range: bucket };
-  if (params.range && endBlock !== null && endBlock !== undefined) {
+function chartRequestParams(bucket, endBlock = null, customRange = null) {
+  if (bucket === 'custom' && customRange?.type === 'block') {
+    return {
+      start_block: String(customRange.start_block),
+      end_block: String(customRange.end_block),
+    };
+  }
+  if (bucket === 'custom' && customRange?.type === 'time') {
+    return {
+      start_time: customRange.start_time,
+      end_time: customRange.end_time,
+    };
+  }
+
+  const params = { range: bucket };
+  if (endBlock !== null && endBlock !== undefined) {
     params.end_block = String(endBlock);
   }
   return params;
 }
 
 function chartCacheEndBlock(bucket, endBlock = null) {
-  return bucket === 'week' || bucket === 'month' ? null : endBlock;
+  return bucket === 'custom' ? null : endBlock;
 }
 
-function cachedChartData(target, chainId, bucket, endBlock = null) {
-  return chartDataCache.get(chartCacheKey(target, chainId, bucket, chartCacheEndBlock(bucket, endBlock)))?.data || null;
+function cachedChartData(target, chainId, bucket, endBlock = null, customRange = null) {
+  return chartDataCache.get(
+    chartCacheKey(target, chainId, bucket, chartCacheEndBlock(bucket, endBlock), customRange),
+  )?.data || null;
 }
 
 function chartCanvasId(target) {
@@ -138,8 +171,8 @@ function chartInstanceKey(target) {
   return target === 'deploys' ? 'deploys' : 'verified';
 }
 
-function renderChartTarget(target, data, bucket, endBlock = null) {
-  lastRenderedCharts[target] = { data, bucket, endBlock };
+function renderChartTarget(target, data, bucket, endBlock = null, customRange = null) {
+  lastRenderedCharts[target] = { data, bucket, endBlock, customRange };
   updateChartPanState(target);
   if (target === 'deploys') renderDeploys(data);
   else renderVerified(data, bucket);
@@ -150,6 +183,7 @@ function bucketDisplayName(bucket) {
   if (bucket === 'day') return '1D';
   if (bucket === 'week') return '1W';
   if (bucket === 'month') return '1M';
+  if (bucket === 'custom') return 'custom';
   return bucket;
 }
 
@@ -168,8 +202,15 @@ function dashboardSnapshotKey(
   verifiedBucket = buckets.verified,
   deployEndBlock = chartCacheEndBlock(deployBucket, chartWindows.deploys),
   verifiedEndBlock = chartCacheEndBlock(verifiedBucket, chartWindows.verified),
+  deployCustomRange = customRanges.deploys,
+  verifiedCustomRange = customRanges.verified,
 ) {
-  return `${DASHBOARD_SNAPSHOT_PREFIX}.${chainId}.${deployBucket}.${chartWindowKey(deployEndBlock)}.${verifiedBucket}.${chartWindowKey(verifiedEndBlock)}`;
+  return [
+    DASHBOARD_SNAPSHOT_PREFIX,
+    chainId,
+    chartSelectionKey(deployBucket, deployEndBlock, deployCustomRange),
+    chartSelectionKey(verifiedBucket, verifiedEndBlock, verifiedCustomRange),
+  ].join('.');
 }
 
 function dashboardLatestSnapshotKey(chainId) {
@@ -199,10 +240,18 @@ function readDashboardSnapshot(chainId) {
     exact &&
     exact.deployBucket === buckets.deploys &&
     exact.verifiedBucket === buckets.verified &&
-    chartWindowKey(exact.deployEndBlock) ===
-      chartWindowKey(chartCacheEndBlock(buckets.deploys, chartWindows.deploys)) &&
-    chartWindowKey(exact.verifiedEndBlock) ===
-      chartWindowKey(chartCacheEndBlock(buckets.verified, chartWindows.verified))
+    chartSelectionKey(exact.deployBucket, exact.deployEndBlock, exact.deployCustomRange) ===
+      chartSelectionKey(
+        buckets.deploys,
+        chartCacheEndBlock(buckets.deploys, chartWindows.deploys),
+        customRanges.deploys,
+      ) &&
+    chartSelectionKey(exact.verifiedBucket, exact.verifiedEndBlock, exact.verifiedCustomRange) ===
+      chartSelectionKey(
+        buckets.verified,
+        chartCacheEndBlock(buckets.verified, chartWindows.verified),
+        customRanges.verified,
+      )
   ) {
     return exact;
   }
@@ -217,6 +266,8 @@ function writeDashboardSnapshot(chainId, payload) {
     payload.verifiedBucket,
     payload.deployEndBlock,
     payload.verifiedEndBlock,
+    payload.deployCustomRange,
+    payload.verifiedCustomRange,
   );
   const latestKey = dashboardLatestSnapshotKey(chainId);
   const hasContracts = Number(payload.stats?.total_contracts || 0) > 0;
@@ -244,6 +295,7 @@ function hydrateChartCacheFromSnapshot(chainId, payload) {
         chainId,
         payload.deployBucket,
         chartCacheEndBlock(payload.deployBucket, payload.deployEndBlock),
+        payload.deployCustomRange,
       ),
       {
         data: payload.deploys,
@@ -259,6 +311,7 @@ function hydrateChartCacheFromSnapshot(chainId, payload) {
         chainId,
         payload.verifiedBucket,
         chartCacheEndBlock(payload.verifiedBucket, payload.verifiedEndBlock),
+        payload.verifiedCustomRange,
       ),
       {
         data: payload.verified,
@@ -288,6 +341,10 @@ function readChartPrefs() {
       }
       const endBlock = prefs?.windows?.[target];
       chartWindows[target] = Number.isFinite(endBlock) ? endBlock : null;
+      customRanges[target] = normalizeCustomRange(prefs?.customRanges?.[target]);
+      if (buckets[target] === 'custom' && !customRanges[target]) {
+        buckets[target] = target === 'deploys' ? 'day' : 'week';
+      }
     }
   } catch (err) {
     console.warn('[blink] failed to read chart preferences', err);
@@ -301,11 +358,35 @@ function writeChartPrefs() {
       JSON.stringify({
         buckets: { ...buckets },
         windows: { ...chartWindows },
+        customRanges: { ...customRanges },
       }),
     );
   } catch (err) {
     console.warn('[blink] failed to write chart preferences', err);
   }
+}
+
+function normalizeCustomRange(range) {
+  if (!range || typeof range !== 'object') return null;
+  if (range.type === 'block') {
+    const start = Number(range.start_block);
+    const end = Number(range.end_block);
+    if (Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end >= start) {
+      return { type: 'block', start_block: Math.trunc(start), end_block: Math.trunc(end) };
+    }
+  }
+  if (range.type === 'time' && range.start_time && range.end_time) {
+    const start = new Date(range.start_time);
+    const end = new Date(range.end_time);
+    if (Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && start <= end) {
+      return {
+        type: 'time',
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+      };
+    }
+  }
+  return null;
 }
 
 function syncBucketButtons() {
@@ -314,6 +395,10 @@ function syncBucketButtons() {
     group.querySelectorAll('button').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.bucket === buckets[target]);
     });
+  });
+  document.querySelectorAll('[data-custom-toggle]').forEach(btn => {
+    const target = btn.dataset.customToggle;
+    btn.classList.toggle('active', buckets[target] === 'custom');
   });
 }
 
@@ -673,10 +758,11 @@ function renderDeploys(data) {
 }
 
 async function loadDeploys(chainId = selectedChainId(), epoch = renderEpoch, bucket = buckets.deploys) {
-  const endBlock = chartWindows.deploys;
-  const data = await fetchChartData('deploys', chainId, bucket, endBlock);
+  const endBlock = chartCacheEndBlock(bucket, chartWindows.deploys);
+  const customRange = bucket === 'custom' ? customRanges.deploys : null;
+  const data = await fetchChartData('deploys', chainId, bucket, endBlock, customRange);
   if (!canRender(epoch, chainId) || bucket !== buckets.deploys) return null;
-  renderChartTarget('deploys', data, bucket, endBlock);
+  renderChartTarget('deploys', data, bucket, endBlock, customRange);
   return data;
 }
 
@@ -772,10 +858,11 @@ function renderVerified(data, bucket = buckets.verified) {
 }
 
 async function loadVerified(chainId = selectedChainId(), epoch = renderEpoch, bucket = buckets.verified) {
-  const endBlock = chartWindows.verified;
-  const data = await fetchChartData('verified', chainId, bucket, endBlock);
+  const endBlock = chartCacheEndBlock(bucket, chartWindows.verified);
+  const customRange = bucket === 'custom' ? customRanges.verified : null;
+  const data = await fetchChartData('verified', chainId, bucket, endBlock, customRange);
   if (!canRender(epoch, chainId) || bucket !== buckets.verified) return null;
-  renderChartTarget('verified', data, bucket, endBlock);
+  renderChartTarget('verified', data, bucket, endBlock, customRange);
   return data;
 }
 
@@ -1180,6 +1267,8 @@ function renderDashboardPayload(payload, chainId, epoch) {
 
   const deployEndBlock = chartCacheEndBlock(payload.deployBucket, payload.deployEndBlock);
   const verifiedEndBlock = chartCacheEndBlock(payload.verifiedBucket, payload.verifiedEndBlock);
+  const deployCustomRange = payload.deployBucket === 'custom' ? payload.deployCustomRange : null;
+  const verifiedCustomRange = payload.verifiedBucket === 'custom' ? payload.verifiedCustomRange : null;
 
   if (payload.stats) renderStats(payload.stats);
   else renderStatsUnavailable();
@@ -1187,15 +1276,15 @@ function renderDashboardPayload(payload, chainId, epoch) {
   const deploys =
     payload.deployBucket === buckets.deploys
       ? payload.deploys
-      : cachedChartData('deploys', chainId, buckets.deploys, chartWindows.deploys);
-  if (deploys) renderChartTarget('deploys', deploys, buckets.deploys, deployEndBlock);
+      : cachedChartData('deploys', chainId, buckets.deploys, chartWindows.deploys, customRanges.deploys);
+  if (deploys) renderChartTarget('deploys', deploys, buckets.deploys, deployEndBlock, deployCustomRange);
   else clearCanvasMessage('chart-deploys', 'loading chain data');
 
   const verified =
     payload.verifiedBucket === buckets.verified
       ? payload.verified
-      : cachedChartData('verified', chainId, buckets.verified, chartWindows.verified);
-  if (verified) renderChartTarget('verified', verified, buckets.verified, verifiedEndBlock);
+      : cachedChartData('verified', chainId, buckets.verified, chartWindows.verified, customRanges.verified);
+  if (verified) renderChartTarget('verified', verified, buckets.verified, verifiedEndBlock, verifiedCustomRange);
   else clearCanvasMessage('chart-verified', 'loading chain data');
 
   if (payload.sizes) renderSizes(payload.sizes);
@@ -1231,6 +1320,9 @@ function renderCachedDashboard() {
   if (!snapshot) return false;
   chartWindows.deploys = chartCacheEndBlock(snapshot.deployBucket, snapshot.deployEndBlock) ?? null;
   chartWindows.verified = chartCacheEndBlock(snapshot.verifiedBucket, snapshot.verifiedEndBlock) ?? null;
+  customRanges.deploys = normalizeCustomRange(snapshot.deployCustomRange);
+  customRanges.verified = normalizeCustomRange(snapshot.verifiedCustomRange);
+  syncCustomRangeControls();
   hydrateChartCacheFromSnapshot(chainId, snapshot);
   return renderDashboardPayload(snapshot, chainId, renderEpoch);
 }
@@ -1238,38 +1330,49 @@ function renderCachedDashboard() {
 function switchChartBucket(target, bucket, options = {}) {
   const chainId = selectedChainId();
   const endBlock = chartCacheEndBlock(bucket, chartWindows[target]);
+  const customRange = bucket === 'custom' ? customRanges[target] : null;
   updateChartPanState(target);
-  const key = chartCacheKey(target, chainId, bucket, endBlock);
+  if (bucket === 'custom' && !customRange) {
+    clearCanvasMessage(chartCanvasId(target), 'choose custom range');
+    return;
+  }
+  const key = chartCacheKey(target, chainId, bucket, endBlock, customRange);
   const cached = chartDataCache.get(key);
   const fresh = cached && Date.now() - cached.storedAt <= CHART_CACHE_MS;
 
   if (cached?.data) {
-    renderChartTarget(target, cached.data, bucket, endBlock);
+    renderChartTarget(target, cached.data, bucket, endBlock, customRange);
     if (fresh) return;
   } else if (
     lastRenderedCharts[target]?.bucket === bucket &&
-    chartWindowKey(lastRenderedCharts[target].endBlock) === chartWindowKey(endBlock)
+    chartSelectionKey(bucket, lastRenderedCharts[target].endBlock, lastRenderedCharts[target].customRange) ===
+      chartSelectionKey(bucket, endBlock, customRange)
   ) {
-    renderChartTarget(target, lastRenderedCharts[target].data, bucket, endBlock);
+    renderChartTarget(target, lastRenderedCharts[target].data, bucket, endBlock, customRange);
   } else if (options.keepCurrent && lastRenderedCharts[target]?.data) {
     renderChartTarget(
       target,
       lastRenderedCharts[target].data,
       lastRenderedCharts[target].bucket,
       lastRenderedCharts[target].endBlock,
+      lastRenderedCharts[target].customRange,
     );
   } else {
     showChartLoading(target, bucket);
   }
 
-  fetchChartData(target, chainId, bucket, endBlock, Boolean(cached?.data))
+  fetchChartData(target, chainId, bucket, endBlock, customRange, Boolean(cached?.data))
     .then(data => {
       if (
         chainId === selectedChainId() &&
         buckets[target] === bucket &&
-        chartWindowKey(chartCacheEndBlock(bucket, chartWindows[target])) === chartWindowKey(endBlock)
+        chartSelectionKey(
+          bucket,
+          chartCacheEndBlock(bucket, chartWindows[target]),
+          bucket === 'custom' ? customRanges[target] : null,
+        ) === chartSelectionKey(bucket, endBlock, customRange)
       ) {
-        renderChartTarget(target, data, bucket, endBlock);
+        renderChartTarget(target, data, bucket, endBlock, customRange);
       }
     })
     .catch(err => {
@@ -1286,7 +1389,7 @@ function switchChartBucket(target, bucket, options = {}) {
 }
 
 function chartPanEnabled(target) {
-  return buckets[target] !== 'week' && buckets[target] !== 'month';
+  return buckets[target] !== 'custom';
 }
 
 function updateChartPanState(target) {
@@ -1397,6 +1500,8 @@ async function refresh({ reset = false } = {}) {
   const verifiedBucket = buckets.verified;
   const deployEndBlock = chartCacheEndBlock(deployBucket, chartWindows.deploys);
   const verifiedEndBlock = chartCacheEndBlock(verifiedBucket, chartWindows.verified);
+  const deployCustomRange = deployBucket === 'custom' ? customRanges.deploys : null;
+  const verifiedCustomRange = verifiedBucket === 'custom' ? customRanges.verified : null;
   const fallback = readDashboardSnapshot(chainId);
   if (fallback) hydrateChartCacheFromSnapshot(chainId, fallback);
   if (reset) {
@@ -1409,15 +1514,17 @@ async function refresh({ reset = false } = {}) {
     verifiedBucket,
     deployEndBlock,
     verifiedEndBlock,
+    deployCustomRange,
+    verifiedCustomRange,
     refreshedAt: fallback?.refreshedAt || new Date().toISOString(),
     runtime: fallback?.runtime || null,
     stats: fallback?.stats || null,
     deploys:
       fallback?.deploys ||
-      cachedChartData('deploys', chainId, deployBucket, deployEndBlock),
+      cachedChartData('deploys', chainId, deployBucket, deployEndBlock, deployCustomRange),
     verified:
       fallback?.verified ||
-      cachedChartData('verified', chainId, verifiedBucket, verifiedEndBlock),
+      cachedChartData('verified', chainId, verifiedBucket, verifiedEndBlock, verifiedCustomRange),
     sizes: fallback?.sizes || null,
     compilers: fallback?.compilers || null,
     languages: fallback?.languages || null,
@@ -1460,16 +1567,20 @@ async function refresh({ reset = false } = {}) {
 
   const deploysJob = capture(
     'deployments chart',
-    fetchChartData('deploys', chainId, deployBucket, deployEndBlock),
+    fetchChartData('deploys', chainId, deployBucket, deployEndBlock, deployCustomRange),
   ).then(deploys => {
     if (
       !canRender(epoch, chainId) ||
       buckets.deploys !== deployBucket ||
-      chartWindowKey(chartCacheEndBlock(deployBucket, chartWindows.deploys)) !== chartWindowKey(deployEndBlock)
+      chartSelectionKey(
+        deployBucket,
+        chartCacheEndBlock(deployBucket, chartWindows.deploys),
+        deployBucket === 'custom' ? customRanges.deploys : null,
+      ) !== chartSelectionKey(deployBucket, deployEndBlock, deployCustomRange)
     ) return deploys;
     if (deploys) {
       payload.deploys = deploys;
-      renderChartTarget('deploys', deploys, deployBucket, deployEndBlock);
+      renderChartTarget('deploys', deploys, deployBucket, deployEndBlock, deployCustomRange);
       markFresh();
     } else if (!payload.deploys) {
       clearCanvasMessage('chart-deploys', 'deployments unavailable');
@@ -1479,16 +1590,20 @@ async function refresh({ reset = false } = {}) {
 
   const verifiedJob = capture(
     'verification chart',
-    fetchChartData('verified', chainId, verifiedBucket, verifiedEndBlock),
+    fetchChartData('verified', chainId, verifiedBucket, verifiedEndBlock, verifiedCustomRange),
   ).then(verified => {
     if (
       !canRender(epoch, chainId) ||
       buckets.verified !== verifiedBucket ||
-      chartWindowKey(chartCacheEndBlock(verifiedBucket, chartWindows.verified)) !== chartWindowKey(verifiedEndBlock)
+      chartSelectionKey(
+        verifiedBucket,
+        chartCacheEndBlock(verifiedBucket, chartWindows.verified),
+        verifiedBucket === 'custom' ? customRanges.verified : null,
+      ) !== chartSelectionKey(verifiedBucket, verifiedEndBlock, verifiedCustomRange)
     ) return verified;
     if (verified) {
       payload.verified = verified;
-      renderChartTarget('verified', verified, verifiedBucket, verifiedEndBlock);
+      renderChartTarget('verified', verified, verifiedBucket, verifiedEndBlock, verifiedCustomRange);
       markFresh();
     } else if (!payload.verified) {
       clearCanvasMessage('chart-verified', 'verification unavailable');
@@ -1606,11 +1721,147 @@ function attachBucketToggles() {
         btn.classList.add('active');
         buckets[target] = nextBucket;
         chartWindows[target] = null;
+        customRanges[target] = null;
+        syncCustomRangeControls();
         writeChartPrefs();
         switchChartBucket(target, nextBucket);
       });
     });
   });
+}
+
+function localDateTimeValue(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return '';
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function customRangeLabel(range) {
+  if (!range) return 'custom';
+  if (range.type === 'block') {
+    return `${fmtFull(range.start_block)}-${fmtFull(range.end_block)}`;
+  }
+  if (range.type === 'time') {
+    return `${localDateTimeValue(range.start_time)}-${localDateTimeValue(range.end_time)}`;
+  }
+  return 'custom';
+}
+
+function syncCustomRangeControls() {
+  document.querySelectorAll('.custom-range').forEach(panel => {
+    const target = panel.dataset.target;
+    const active = buckets[target] === 'custom';
+    panel.hidden = !active;
+    const range = customRanges[target];
+    const mode = panel.querySelector('[data-range-mode]');
+    const timeFields = panel.querySelector('[data-range-fields="time"]');
+    const blockFields = panel.querySelector('[data-range-fields="block"]');
+    if (mode && range) mode.value = range.type;
+    const activeMode = mode?.value || range?.type || 'time';
+    if (timeFields) timeFields.hidden = activeMode !== 'time';
+    if (blockFields) blockFields.hidden = activeMode !== 'block';
+    const startTime = panel.querySelector('[data-range-start-time]');
+    const endTime = panel.querySelector('[data-range-end-time]');
+    const startBlock = panel.querySelector('[data-range-start-block]');
+    const endBlock = panel.querySelector('[data-range-end-block]');
+    if (range?.type === 'time') {
+      if (startTime) startTime.value = localDateTimeValue(range.start_time);
+      if (endTime) endTime.value = localDateTimeValue(range.end_time);
+    }
+    if (range?.type === 'block') {
+      if (startBlock) startBlock.value = String(range.start_block);
+      if (endBlock) endBlock.value = String(range.end_block);
+    }
+    const summary = panel.querySelector('[data-range-summary]');
+    if (summary) summary.textContent = range ? customRangeLabel(range) : 'choose range';
+  });
+  syncBucketButtons();
+}
+
+function readCustomRangeFromPanel(panel) {
+  const mode = panel.querySelector('[data-range-mode]')?.value || 'time';
+  if (mode === 'block') {
+    const start = Number(panel.querySelector('[data-range-start-block]')?.value);
+    const end = Number(panel.querySelector('[data-range-end-block]')?.value);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start) {
+      throw new Error('invalid block range');
+    }
+    return { type: 'block', start_block: Math.trunc(start), end_block: Math.trunc(end) };
+  }
+
+  const startValue = panel.querySelector('[data-range-start-time]')?.value;
+  const endValue = panel.querySelector('[data-range-end-time]')?.value;
+  const start = new Date(startValue);
+  const end = new Date(endValue);
+  if (!startValue || !endValue || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start > end) {
+    throw new Error('invalid time range');
+  }
+  return {
+    type: 'time',
+    start_time: start.toISOString(),
+    end_time: end.toISOString(),
+  };
+}
+
+function attachCustomRangeControls() {
+  document.querySelectorAll('[data-custom-toggle]').forEach(button => {
+    button.addEventListener('click', () => {
+      const target = button.dataset.customToggle;
+      if (!target) return;
+      buckets[target] = 'custom';
+      chartWindows[target] = null;
+      customRanges[target] = customRanges[target] || defaultCustomRange(target);
+      writeChartPrefs();
+      syncCustomRangeControls();
+      if (!customRanges[target]) {
+        clearCanvasMessage(chartCanvasId(target), 'choose custom range');
+        return;
+      }
+      switchChartBucket(target, 'custom');
+    });
+  });
+
+  document.querySelectorAll('.custom-range').forEach(panel => {
+    const target = panel.dataset.target;
+    const mode = panel.querySelector('[data-range-mode]');
+    mode?.addEventListener('change', () => syncCustomRangeControls());
+
+    panel.querySelector('[data-range-apply]')?.addEventListener('click', () => {
+      try {
+        customRanges[target] = readCustomRangeFromPanel(panel);
+        buckets[target] = 'custom';
+        chartWindows[target] = null;
+        writeChartPrefs();
+        syncCustomRangeControls();
+        switchChartBucket(target, 'custom');
+      } catch (err) {
+        logDashboardError(`${target} custom range`, err);
+        const summary = panel.querySelector('[data-range-summary]');
+        if (summary) summary.textContent = err.message;
+      }
+    });
+
+    panel.querySelector('[data-range-clear]')?.addEventListener('click', () => {
+      customRanges[target] = null;
+      buckets[target] = target === 'deploys' ? 'day' : 'week';
+      chartWindows[target] = null;
+      writeChartPrefs();
+      syncCustomRangeControls();
+      syncBucketButtons();
+      switchChartBucket(target, buckets[target]);
+    });
+  });
+}
+
+function defaultCustomRange(target) {
+  const rendered = lastRenderedCharts[target];
+  const bounds = chartWindowBounds(rendered?.data);
+  if (bounds) {
+    return { type: 'block', start_block: bounds.start, end_block: bounds.end };
+  }
+  return null;
 }
 
 function attachRecentPager() {
@@ -1662,12 +1913,14 @@ function attachChainDropdown() {
 readChartPrefs();
 syncBucketButtons();
 attachBucketToggles();
+attachCustomRangeControls();
 attachChartPan();
 attachRecentPager();
 attachQueryRunner();
 attachChainDropdown();
 renderChainDropdown();
 updateChainMeta();
+syncCustomRangeControls();
 resetDashboardForChain();
 
 async function startDashboard() {
