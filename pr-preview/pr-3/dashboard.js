@@ -213,8 +213,12 @@ function chartRequestParams(bucket, endBlock = null) {
   return params;
 }
 
+function chartCacheEndBlock(bucket, endBlock = null) {
+  return bucket === 'week' || bucket === 'month' ? null : endBlock;
+}
+
 function cachedChartData(target, chainId, bucket, endBlock = null) {
-  return chartDataCache.get(chartCacheKey(target, chainId, bucket, endBlock))?.data || null;
+  return chartDataCache.get(chartCacheKey(target, chainId, bucket, chartCacheEndBlock(bucket, endBlock)))?.data || null;
 }
 
 function chartCanvasId(target) {
@@ -1362,7 +1366,7 @@ function renderCachedDashboard() {
 
 function switchChartBucket(target, bucket, options = {}) {
   const chainId = selectedChainId();
-  const endBlock = chartWindows[target];
+  const endBlock = chartCacheEndBlock(bucket, chartWindows[target]);
   updateChartPanState(target);
   const key = chartCacheKey(target, chainId, bucket, endBlock);
   const cached = chartDataCache.get(key);
@@ -1520,8 +1524,8 @@ async function refresh({ reset = false } = {}) {
   const chainId = selectedChainId();
   const deployBucket = buckets.deploys;
   const verifiedBucket = buckets.verified;
-  const deployEndBlock = chartWindows.deploys;
-  const verifiedEndBlock = chartWindows.verified;
+  const deployEndBlock = chartCacheEndBlock(deployBucket, chartWindows.deploys);
+  const verifiedEndBlock = chartCacheEndBlock(verifiedBucket, chartWindows.verified);
   const fallback = readDashboardSnapshot(chainId);
   if (fallback) hydrateChartCacheFromSnapshot(chainId, fallback);
   if (reset) {
@@ -1730,6 +1734,7 @@ function attachBucketToggles() {
         group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         buckets[target] = nextBucket;
+        chartWindows[target] = null;
         writeChartPrefs();
         switchChartBucket(target, nextBucket);
       });
