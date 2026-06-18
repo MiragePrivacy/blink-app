@@ -1396,7 +1396,7 @@ function switchChartBucket(target, bucket, options = {}) {
       if (
         chainId === selectedChainId() &&
         buckets[target] === bucket &&
-        chartWindowKey(chartWindows[target]) === chartWindowKey(endBlock)
+        chartWindowKey(chartCacheEndBlock(bucket, chartWindows[target])) === chartWindowKey(endBlock)
       ) {
         renderChartTarget(target, data, bucket, endBlock);
       }
@@ -1594,7 +1594,7 @@ async function refresh({ reset = false } = {}) {
     if (
       !canRender(epoch, chainId) ||
       buckets.deploys !== deployBucket ||
-      chartWindowKey(chartWindows.deploys) !== chartWindowKey(deployEndBlock)
+      chartWindowKey(chartCacheEndBlock(deployBucket, chartWindows.deploys)) !== chartWindowKey(deployEndBlock)
     ) return deploys;
     if (deploys) {
       payload.deploys = deploys;
@@ -1613,7 +1613,7 @@ async function refresh({ reset = false } = {}) {
     if (
       !canRender(epoch, chainId) ||
       buckets.verified !== verifiedBucket ||
-      chartWindowKey(chartWindows.verified) !== chartWindowKey(verifiedEndBlock)
+      chartWindowKey(chartCacheEndBlock(verifiedBucket, chartWindows.verified)) !== chartWindowKey(verifiedEndBlock)
     ) return verified;
     if (verified) {
       payload.verified = verified;
