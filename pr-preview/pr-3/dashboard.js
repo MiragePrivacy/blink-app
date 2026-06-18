@@ -227,6 +227,7 @@ function chartInstanceKey(target) {
 
 function renderChartTarget(target, data, bucket, endBlock = null) {
   lastRenderedCharts[target] = { data, bucket, endBlock };
+  updateChartPanState(target);
   if (target === 'deploys') renderDeploys(data);
   else renderVerified(data, bucket);
 }
@@ -1362,6 +1363,7 @@ function renderCachedDashboard() {
 function switchChartBucket(target, bucket, options = {}) {
   const chainId = selectedChainId();
   const endBlock = chartWindows[target];
+  updateChartPanState(target);
   const key = chartCacheKey(target, chainId, bucket, endBlock);
   const cached = chartDataCache.get(key);
   const fresh = cached && Date.now() - cached.storedAt <= CHART_CACHE_MS;
@@ -1408,6 +1410,18 @@ function switchChartBucket(target, bucket, options = {}) {
     });
 }
 
+function chartPanEnabled(target) {
+  return buckets[target] !== 'week' && buckets[target] !== 'month';
+}
+
+function updateChartPanState(target) {
+  const canvas = document.getElementById(chartCanvasId(target));
+  const surface = canvas?.closest('.chart-wrap');
+  if (!surface) return;
+  surface.classList.toggle('pannable', chartPanEnabled(target));
+  surface.classList.remove('dragging');
+}
+
 function chartWindowBounds(data) {
   const start = Number(data?.range_start_block);
   const end = Number(data?.range_end_block);
@@ -1422,6 +1436,7 @@ function chartWindowBounds(data) {
 }
 
 function panChartWindow(target, dragPx, surfaceWidth) {
+  if (!chartPanEnabled(target)) return;
   const rendered = lastRenderedCharts[target];
   const bounds = chartWindowBounds(rendered?.data);
   if (!bounds) {
@@ -1453,7 +1468,7 @@ function attachChartPan() {
     if (!canvas) continue;
     const surface = canvas.closest('.chart-wrap') || canvas;
     surface.style.touchAction = 'pan-y';
-    surface.classList.add('pannable');
+    updateChartPanState(target);
 
     let pointerId = null;
     let startX = 0;
@@ -1461,6 +1476,7 @@ function attachChartPan() {
     let dragging = false;
 
     surface.addEventListener('pointerdown', event => {
+      if (!chartPanEnabled(target)) return;
       pointerId = event.pointerId;
       startX = event.clientX;
       startY = event.clientY;
@@ -1469,6 +1485,7 @@ function attachChartPan() {
     });
 
     surface.addEventListener('pointermove', event => {
+      if (!chartPanEnabled(target)) return;
       if (pointerId !== event.pointerId) return;
       const dx = event.clientX - startX;
       const dy = event.clientY - startY;
@@ -1479,6 +1496,7 @@ function attachChartPan() {
     });
 
     surface.addEventListener('pointerup', event => {
+      if (!chartPanEnabled(target)) return;
       if (pointerId !== event.pointerId) return;
       const dx = event.clientX - startX;
       const dy = event.clientY - startY;
