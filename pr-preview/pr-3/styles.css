@@ -541,10 +541,22 @@ main {
   font-family: var(--mono);
   font-size: 10.5px;
   outline: none;
+  line-height: 27px;
 }
 
 .range-mode {
-  padding: 0 8px;
+  flex: 0 0 92px;
+  width: 92px;
+  padding: 0 28px 0 8px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-faint) 50%),
+    linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 11px,
+    calc(100% - 9px) 11px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
 }
 
 .range-fields input {
@@ -554,6 +566,14 @@ main {
 
 .range-fields input[type="number"] {
   width: 130px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.range-fields input[type="number"]::-webkit-outer-spin-button,
+.range-fields input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .range-fields input:focus,
