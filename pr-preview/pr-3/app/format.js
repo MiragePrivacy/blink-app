@@ -30,7 +30,7 @@ export function bucketLabel(row, bucket) {
   const timestamp = Date.parse(row.timestamp);
   if (!Number.isFinite(timestamp)) return `${fmtFull(row.block_start)}-${fmtFull(row.block_end)}`;
   const day = new Date(timestamp).toISOString().slice(0, 10);
-  return bucket === 'month' ? day.slice(0, 7) : day;
+  return bucket === 'month' || bucket === 'year' ? day.slice(0, 7) : day;
 }
 
 export function shortError(message) {

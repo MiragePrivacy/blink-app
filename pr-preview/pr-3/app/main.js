@@ -30,8 +30,8 @@ const buckets = { deploys: 'day', verified: 'week' };
 const chartWindows = { deploys: null, verified: null };
 const customRanges = { deploys: null, verified: null };
 const chartBuckets = {
-  deploys: ['hour', 'day', 'week', 'month', 'custom'],
-  verified: ['day', 'week', 'month', 'custom'],
+  deploys: ['hour', 'day', 'week', 'month', 'year', 'custom'],
+  verified: ['day', 'week', 'month', 'year', 'custom'],
 };
 const charts = {};
 const chartDataCache = new Map();
@@ -96,6 +96,8 @@ async function fetchChartData(
   customRange = null,
   refresh = false,
 ) {
+  if (bucket === 'custom' && !customRange) return null;
+
   const key = chartCacheKey(target, chainId, bucket, endBlock, customRange);
   const cached = chartDataCache.get(key);
   const fresh = cached && Date.now() - cached.storedAt <= CHART_CACHE_MS;
@@ -183,6 +185,7 @@ function bucketDisplayName(bucket) {
   if (bucket === 'day') return '1D';
   if (bucket === 'week') return '1W';
   if (bucket === 'month') return '1M';
+  if (bucket === 'year') return '1Y';
   if (bucket === 'custom') return 'custom';
   return bucket;
 }
@@ -256,7 +259,7 @@ function readDashboardSnapshot(chainId) {
     return exact;
   }
 
-  return readStoredDashboardSnapshot(dashboardLatestSnapshotKey(chainId));
+  return null;
 }
 
 function writeDashboardSnapshot(chainId, payload) {
@@ -1537,9 +1540,10 @@ async function refresh({ reset = false } = {}) {
     payload.refreshedAt = new Date().toISOString();
     updateFooterRefresh(payload.refreshedAt);
   };
-
-  recentState.loading = true;
-  updateRecentPager();
+  const writeSnapshotIfCurrent = () => {
+    if (!canRender(epoch, chainId)) return;
+    if (hasFreshData || fallback) writeDashboardSnapshot(chainId, payload);
+  };
 
   const runtimeJob = capture('runtime', fetchJson('/api/runtime')).then(runtime => {
     if (!canRender(epoch, chainId)) return runtime;
@@ -1583,7 +1587,10 @@ async function refresh({ reset = false } = {}) {
       renderChartTarget('deploys', deploys, deployBucket, deployEndBlock, deployCustomRange);
       markFresh();
     } else if (!payload.deploys) {
-      clearCanvasMessage('chart-deploys', 'deployments unavailable');
+      clearCanvasMessage(
+        'chart-deploys',
+        deployBucket === 'custom' ? 'choose custom range' : 'deployments unavailable',
+      );
     }
     return deploys;
   });
@@ -1606,10 +1613,17 @@ async function refresh({ reset = false } = {}) {
       renderChartTarget('verified', verified, verifiedBucket, verifiedEndBlock, verifiedCustomRange);
       markFresh();
     } else if (!payload.verified) {
-      clearCanvasMessage('chart-verified', 'verification unavailable');
+      clearCanvasMessage(
+        'chart-verified',
+        verifiedBucket === 'custom' ? 'choose custom range' : 'verification unavailable',
+      );
     }
     return verified;
   });
+
+  await Promise.all([runtimeJob, statsJob, deploysJob, verifiedJob]);
+  if (!canRender(epoch, chainId)) return;
+  writeSnapshotIfCurrent();
 
   const sizesJob = capture(
     'bytecode size chart',
@@ -1673,6 +1687,9 @@ async function refresh({ reset = false } = {}) {
     return standards;
   });
 
+  recentState.loading = true;
+  updateRecentPager();
+
   const recentJob = capture('recent deployments', fetchJson(recentPathFor(chainId)))
     .then(recent => {
       if (!canRender(epoch, chainId)) return recent;
@@ -1695,19 +1712,8 @@ async function refresh({ reset = false } = {}) {
       }
     });
 
-  await Promise.all([
-    runtimeJob,
-    statsJob,
-    deploysJob,
-    verifiedJob,
-    sizesJob,
-    compilersJob,
-    languagesJob,
-    standardsJob,
-    recentJob,
-  ]);
-  if (!canRender(epoch, chainId)) return;
-  if (hasFreshData || fallback) writeDashboardSnapshot(chainId, payload);
+  await Promise.all([sizesJob, compilersJob, languagesJob, standardsJob, recentJob]);
+  writeSnapshotIfCurrent();
 }
 
 function attachBucketToggles() {
