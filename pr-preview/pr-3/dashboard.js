@@ -828,6 +828,14 @@ function renderVerified(data, bucket = buckets.verified) {
           backgroundColor: 'transparent',
           fill: false, pointRadius: 0, borderWidth: 1.8, tension: 0.45,
         },
+        {
+          label: 'unknown',
+          data: points.map(p => p.kAbs),
+          borderColor: palette.ash,
+          backgroundColor: 'transparent',
+          fill: false, pointRadius: 0, borderWidth: 1.4, tension: 0.45,
+          hidden: !points.some(p => p.kAbs > 0),
+        },
       ],
     },
     options: {
@@ -841,8 +849,12 @@ function renderVerified(data, bucket = buckets.verified) {
             title: items => labels[items[0].dataIndex],
             label: (item) => {
               const p = points[item.dataIndex];
-              const abs = item.datasetIndex === 0 ? p.vAbs : p.uAbs;
-              const share = item.datasetIndex === 0 ? p.verified : p.unverified;
+              const abs = item.datasetIndex === 0 ? p.vAbs : item.datasetIndex === 1 ? p.uAbs : p.kAbs;
+              const share = item.datasetIndex === 0
+                ? p.verified
+                : item.datasetIndex === 1
+                  ? p.unverified
+                  : p.unknown;
               return `${item.dataset.label}: ${fmtFull(abs)} (${share.toFixed(1)}%)`;
             },
             afterBody: items => {
