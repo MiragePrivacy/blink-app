@@ -803,6 +803,25 @@ tbody tr:last-child td { border-bottom: none; }
   cursor: wait;
 }
 
+.export-btn {
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid var(--accent-dim);
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.export-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .query-body {
   display: grid;
   grid-template-columns: minmax(320px, 0.42fr) minmax(0, 1fr);

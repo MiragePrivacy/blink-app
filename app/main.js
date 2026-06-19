@@ -1124,12 +1124,52 @@ function verifiedBadge(v) {
   return '<span class="badge dim">unchecked</span>';
 }
 
+let lastQueryResult = null;
+
+function setQueryExportEnabled(enabled) {
+  const button = document.getElementById('query-export');
+  if (button) button.disabled = !enabled;
+}
+
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = typeof value === 'boolean' ? String(value) : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function buildCsv(columns, rows) {
+  const lines = [columns.map(csvCell).join(',')];
+  for (const row of rows) {
+    lines.push(row.map(csvCell).join(','));
+  }
+  return lines.join('\r\n');
+}
+
+function exportQueryCsv() {
+  if (!lastQueryResult) return;
+  const cols = lastQueryResult.columns || [];
+  const rows = lastQueryResult.rows || [];
+  if (!cols.length) return;
+  const csv = buildCsv(cols, rows);
+  const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `blink-query-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 function renderQueryResult(data) {
+  lastQueryResult = data;
   const table = document.getElementById('query-table');
   const thead = table.querySelector('thead');
   const tbody = table.querySelector('tbody');
   const cols = data.columns || [];
   const rows = data.rows || [];
+  setQueryExportEnabled(cols.length > 0 && rows.length > 0);
 
   thead.innerHTML = cols.length
     ? `<tr>${cols.map(c => `<th title="${escapeHtml(c)}">${escapeHtml(c)}</th>`).join('')}</tr>`
@@ -1149,6 +1189,8 @@ function renderQueryResult(data) {
 }
 
 function clearQueryResult(message = 'no query results') {
+  lastQueryResult = null;
+  setQueryExportEnabled(false);
   const status = document.getElementById('query-status');
   if (status) status.textContent = 'ready';
   const table = document.getElementById('query-table');
@@ -1176,6 +1218,8 @@ async function runSqlQuery() {
   } catch (err) {
     console.error(err);
     status.textContent = shortError(err.message);
+    lastQueryResult = null;
+    setQueryExportEnabled(false);
     const tbody = document.querySelector('#query-table tbody');
     tbody.innerHTML = `<tr><td class="query-empty">${escapeHtml(err.message)}</td></tr>`;
   } finally {
@@ -1910,6 +1954,8 @@ function attachQueryRunner() {
   const button = document.getElementById('query-run');
   const editor = document.getElementById('query-editor');
   button.addEventListener('click', () => runSqlQuery().catch(console.error));
+  const exportButton = document.getElementById('query-export');
+  if (exportButton) exportButton.addEventListener('click', exportQueryCsv);
   editor.addEventListener('keydown', event => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
