@@ -32,6 +32,11 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+body {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -83,6 +88,7 @@ a {
 }
 
 .meta-tag {
+  flex: 0 0 auto;
   font-family: var(--mono);
   font-size: 10px;
   text-transform: uppercase;
@@ -459,11 +465,20 @@ main {
 /* SEGMENTED CONTROL */
 .seg {
   display: flex;
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
   border: 1px solid var(--border);
   background: var(--surface-2);
 }
 
+.seg::-webkit-scrollbar {
+  display: none;
+}
+
 .seg button {
+  flex: 0 0 auto;
   background: transparent;
   border: none;
   color: var(--text-dim);
@@ -513,6 +528,7 @@ main {
 .custom-range {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 18px;
   border-bottom: 1px solid var(--border);
@@ -527,6 +543,8 @@ main {
 .range-fields {
   display: flex;
   align-items: center;
+  flex: 1 1 320px;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
 }
@@ -563,7 +581,9 @@ main {
 }
 
 .range-fields input {
-  width: 170px;
+  flex: 1 1 150px;
+  width: auto;
+  min-width: 0;
   padding: 0 10px;
 }
 
@@ -579,7 +599,7 @@ main {
 }
 
 .range-fields input[type="number"] {
-  width: 130px;
+  flex-basis: 130px;
   appearance: textfield;
   -moz-appearance: textfield;
 }
@@ -596,7 +616,7 @@ main {
 }
 
 .range-summary {
-  flex: 1 1 auto;
+  flex: 999 1 160px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -889,14 +909,73 @@ tbody tr:last-child td { border-bottom: none; }
   .chain-menu { left: auto; right: 0; }
 }
 
+@media (max-width: 760px) {
+  .panel-head {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .panel-title {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .panel-head .seg {
+    flex: 1 1 auto;
+  }
+
+  .custom-range {
+    align-items: stretch;
+  }
+
+  .range-mode {
+    flex: 0 0 104px;
+    width: 104px;
+  }
+
+  .range-fields {
+    flex-basis: 100%;
+    order: 2;
+  }
+
+  .range-summary {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .range-apply,
+  .range-clear {
+    order: 4;
+  }
+}
+
 @media (max-width: 600px) {
   main { padding: 16px; gap: 12px; }
-  .topbar { padding: 10px 16px; gap: 12px; }
+  .topbar {
+    align-items: flex-start;
+    padding: 10px 16px;
+    gap: 10px;
+  }
+  .brand {
+    width: 100%;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+  .status-block {
+    width: 100%;
+    justify-content: space-between;
+    gap: 10px;
+  }
   .query-actions {
     width: 100%;
     justify-content: space-between;
+    flex-wrap: wrap;
   }
-  .query-status { max-width: 190px; }
+  .query-status {
+    max-width: none;
+    flex: 1 1 100%;
+    order: 3;
+  }
   .top-refresh { display: none; }
   .chain-trigger { max-width: 132px; }
   .chain-name {
@@ -909,4 +988,59 @@ tbody tr:last-child td { border-bottom: none; }
   .kpi:nth-child(even) { border-right: none; }
   .kpi-value { font-size: 18px; }
   .panel-title h2 { font-size: 12px; }
+  .panel-head {
+    padding: 12px;
+  }
+  .panel-head .seg {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .seg button {
+    flex: 1 0 auto;
+    padding: 6px 10px;
+  }
+  .range-custom-btn {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .custom-range {
+    padding: 10px 12px;
+  }
+  .range-mode,
+  .range-fields,
+  .range-fields input,
+  .range-apply,
+  .range-clear {
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .range-fields {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .range-summary {
+    white-space: normal;
+  }
+  .chart-wrap {
+    height: 220px;
+    padding: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  .chart-wrap.tall {
+    height: 280px;
+  }
+  .chart-wrap canvas {
+    min-width: 640px;
+  }
+  .table-wrap.recent table {
+    min-width: 760px;
+  }
+  .query-body {
+    min-height: 0;
+  }
+  .query-editor {
+    min-height: 280px;
+  }
 }

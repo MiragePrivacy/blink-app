@@ -1762,7 +1762,7 @@ function attachChartPan() {
     const canvas = document.getElementById(chartCanvasId(target));
     if (!canvas) continue;
     const surface = canvas.closest('.chart-wrap') || canvas;
-    surface.style.touchAction = 'pan-y';
+    surface.style.touchAction = 'auto';
     updateChartPanState(target);
 
     let pointerId = null;
@@ -1772,6 +1772,7 @@ function attachChartPan() {
 
     surface.addEventListener('pointerdown', event => {
       if (!chartPanEnabled(target)) return;
+      if (event.pointerType === 'touch') return;
       pointerId = event.pointerId;
       startX = event.clientX;
       startY = event.clientY;
@@ -1781,6 +1782,7 @@ function attachChartPan() {
 
     surface.addEventListener('pointermove', event => {
       if (!chartPanEnabled(target)) return;
+      if (event.pointerType === 'touch') return;
       if (pointerId !== event.pointerId) return;
       const dx = event.clientX - startX;
       const dy = event.clientY - startY;
@@ -1792,6 +1794,7 @@ function attachChartPan() {
 
     surface.addEventListener('pointerup', event => {
       if (!chartPanEnabled(target)) return;
+      if (event.pointerType === 'touch') return;
       if (pointerId !== event.pointerId) return;
       const dx = event.clientX - startX;
       const dy = event.clientY - startY;
