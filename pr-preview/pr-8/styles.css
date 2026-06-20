@@ -963,13 +963,14 @@ tbody tr:last-child td { border-bottom: none; }
   }
   .status-block {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 10px;
   }
   .query-actions {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
     flex-wrap: wrap;
+    gap: 8px;
   }
   .query-status {
     max-width: none;
@@ -1022,17 +1023,11 @@ tbody tr:last-child td { border-bottom: none; }
     white-space: normal;
   }
   .chart-wrap {
-    height: 220px;
+    height: 200px;
     padding: 12px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
   }
   .chart-wrap.tall {
-    height: 280px;
-  }
-  .chart-wrap canvas {
-    min-width: 640px;
+    height: 240px;
   }
   .table-wrap.recent table {
     min-width: 760px;
