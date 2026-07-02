@@ -5,6 +5,8 @@ import {
   DASHBOARD_SNAPSHOT_PREFIX,
   REFRESH_MS,
   SNAPSHOT_CACHE_MS,
+  THEME_KEY,
+  applyChartTheme,
   baseChartDefaults,
   baseScales,
   baseTooltip,
@@ -24,6 +26,7 @@ import {
   shortError,
 } from './format.js';
 
+applyChartTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
 configureChartDefaults(Chart);
 
 const rangeTargets = ['deploys', 'verified', 'sizes', 'compilers', 'standards'];
@@ -903,7 +906,7 @@ function renderDeploys(data) {
         pointRadius: 0,
         pointHoverRadius: 3,
         pointHoverBackgroundColor: palette.accent,
-        pointHoverBorderColor: '#000',
+        pointHoverBorderColor: palette.pointContrast,
         borderWidth: 1.4,
       }],
     },
@@ -1159,8 +1162,8 @@ function renderStandards(data) {
   ];
   const colors = [
     palette.accent, palette.blue, palette.amber,
-    '#00d6ff', palette.red,
-    '#9d6cff', palette.dim,
+    palette.cyan, palette.red,
+    palette.purple, palette.dim,
   ];
 
   charts.standards = new Chart(ctx, {
@@ -2282,6 +2285,45 @@ function attachQueryRunner() {
   });
 }
 
+function currentTheme() {
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+}
+
+function setTheme(theme) {
+  if (theme === 'light') document.documentElement.dataset.theme = 'light';
+  else delete document.documentElement.dataset.theme;
+  applyChartTheme(theme);
+  configureChartDefaults(Chart);
+  const toggle = document.getElementById('theme-toggle');
+  if (toggle) {
+    toggle.setAttribute('aria-label', theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode');
+  }
+}
+
+function rerenderChartsForTheme() {
+  rangeTargets.forEach(target => {
+    const rendered = lastRenderedCharts[target];
+    if (!rendered) return;
+    if (aggregateTargets.includes(target)) {
+      renderAggregateTarget(target, rendered.data, rendered.bucket, rendered.endBlock, rendered.customRange);
+    } else {
+      renderChartTarget(target, rendered.data, rendered.bucket, rendered.endBlock, rendered.customRange);
+    }
+  });
+}
+
+function attachThemeToggle() {
+  const toggle = document.getElementById('theme-toggle');
+  if (!toggle) return;
+  setTheme(currentTheme());
+  toggle.addEventListener('click', () => {
+    const next = currentTheme() === 'light' ? 'dark' : 'light';
+    localStorage.setItem(THEME_KEY, next);
+    setTheme(next);
+    rerenderChartsForTheme();
+  });
+}
+
 function attachChainDropdown() {
   const picker = document.getElementById('chain-picker');
   const trigger = document.getElementById('chain-trigger');
@@ -2308,6 +2350,7 @@ attachCustomRangeControls();
 attachChartPan();
 attachRecentPager();
 attachQueryRunner();
+attachThemeToggle();
 attachChainDropdown();
 renderChainDropdown();
 updateChainMeta();
