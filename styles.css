@@ -28,31 +28,34 @@
 }
 
 html[data-theme="light"] {
-  --bg: #f4f4f1;
-  --surface: #fbfbf9;
-  --surface-2: #f1f1ee;
-  --hover: #e9e9e4;
-  --border: #e2e2dc;
-  --border-strong: #cccdc4;
-  --text: #191919;
-  --text-dim: #64645f;
-  --text-faint: #a6a69e;
-  --accent: #5f8000;
-  --accent-dim: rgba(95, 128, 0, 0.10);
-  --accent-strong: rgba(95, 128, 0, 0.25);
-  --red: #d43030;
-  --red-dim: rgba(212, 48, 48, 0.10);
-  --blue: #1d6fd1;
-  --amber: #b3730a;
-  --amber-dim: rgba(179, 115, 10, 0.12);
-  --amber-strong: rgba(179, 115, 10, 0.30);
+  --bg: #e9e9e3;
+  --surface: #f3f3ef;
+  --surface-2: #e7e7e1;
+  --hover: #deded7;
+  --border: #d8d8d0;
+  --border-strong: #c1c2b8;
+  --text: #0c0c0c;
+  --text-dim: #57574f;
+  --text-faint: #97978d;
+  --accent: #55a300;
+  --accent-dim: rgba(85, 163, 0, 0.12);
+  --accent-strong: rgba(85, 163, 0, 0.26);
+  --red: #cc2b2b;
+  --red-dim: rgba(204, 43, 43, 0.10);
+  --blue: #1a68c9;
+  --amber: #a86a08;
+  --amber-dim: rgba(168, 106, 8, 0.13);
+  --amber-strong: rgba(168, 106, 8, 0.32);
   --accent-contrast: #fff;
-  --accent-hover: #4d6900;
-  --menu-bg: #fff;
-  --menu-shadow: 0 16px 34px rgba(20, 20, 15, 0.14);
-  --inset-bg: #f6f6f3;
+  --accent-hover: #468700;
+  --menu-bg: #fbfbf8;
+  --menu-shadow: 0 16px 34px rgba(20, 20, 15, 0.16);
+  --inset-bg: #edede7;
   --picker-filter: none;
 }
+
+/* Chain logos are <img> SVGs with a baked-in white fill; invert to black on light. */
+html[data-theme="light"] .chain-icon img { filter: invert(1); }
 
 * { box-sizing: border-box; }
 
