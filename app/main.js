@@ -805,6 +805,14 @@ function isoAgeMs(iso) {
   return Number.isFinite(t) ? Date.now() - t : Infinity;
 }
 
+function selectedChainTail(runtime) {
+  const chainId = Number(selectedChainId());
+  const chain = (runtime.tail_chains || []).find(c => Number(c.chain_id) === chainId);
+  // The top-level tail_* fields only track the default chain; fall back to
+  // them when the backend predates per-chain snapshots.
+  return chain || runtime;
+}
+
 function renderRuntimeStatus(runtime) {
   const ts = new Date().toISOString().slice(11, 19) + ' UTC';
   if (!runtime) {
@@ -813,26 +821,27 @@ function renderRuntimeStatus(runtime) {
   }
 
   if (runtime.tail_enabled) {
+    const tail = selectedChainTail(runtime);
     const freshMs = Math.max((runtime.tail_interval_secs || 60) * 3 * 1000, 180_000);
     const tailErrorIsLatest =
-      runtime.tail_last_error &&
-      isoAgeMs(runtime.tail_last_error_at) < isoAgeMs(runtime.tail_last_ok_at);
+      tail.tail_last_error &&
+      isoAgeMs(tail.tail_last_error_at) < isoAgeMs(tail.tail_last_ok_at);
     if (tailErrorIsLatest) {
-      console.warn('[blink] tail delayed', runtime.tail_last_error);
+      console.warn('[blink] tail delayed', tail.tail_last_error);
       setStatus('sync', 'tail delayed');
       return;
     }
-    if (runtime.tail_last_ok_at && isoAgeMs(runtime.tail_last_ok_at) <= freshMs) {
-      const block = runtime.tail_last_block ? ` · block ${fmtFull(runtime.tail_last_block)}` : '';
+    if (tail.tail_last_ok_at && isoAgeMs(tail.tail_last_ok_at) <= freshMs) {
+      const block = tail.tail_last_block ? ` · block ${fmtFull(tail.tail_last_block)}` : '';
       setStatus('live', `live${block}`);
       return;
     }
-    if (runtime.tail_last_error) {
-      console.warn('[blink] tail delayed', runtime.tail_last_error);
+    if (tail.tail_last_error) {
+      console.warn('[blink] tail delayed', tail.tail_last_error);
       setStatus('sync', 'tail delayed');
       return;
     }
-    setStatus('sync', runtime.tail_running ? 'tailing latest contracts' : 'tail starting');
+    setStatus('sync', tail.tail_running ? 'tailing latest contracts' : 'tail starting');
     return;
   }
 
