@@ -799,7 +799,21 @@ function setStatus(state, text) {
   if (state === 'sync') dot.classList.add('sync');
   if (state === 'live') dot.classList.add('live');
   if (state === 'error') dot.classList.add('error');
-  txt.textContent = text;
+  txt.classList.toggle('error', state === 'error');
+  // Split off any " · detail" tail (timestamp / block) into its own span so the
+  // mobile topbar can hide it and keep just the state word on one line.
+  const sep = ' · ';
+  const idx = text.indexOf(sep);
+  txt.textContent = '';
+  if (idx === -1) {
+    txt.append(text);
+  } else {
+    txt.append(text.slice(0, idx));
+    const detail = document.createElement('span');
+    detail.className = 'status-detail';
+    detail.textContent = text.slice(idx);
+    txt.append(detail);
+  }
 }
 
 function isoAgeMs(iso) {
@@ -1895,16 +1909,18 @@ async function refresh({ reset = false } = {}) {
     if (hasFreshData || fallback) writeDashboardSnapshot(chainId, payload);
   };
 
-  const runtimeJob = capture('runtime', fetchJson('/api/runtime')).then(runtime => {
+  const runtimeJob = fetchJson('/api/runtime').then(runtime => {
     if (!canRender(epoch, chainId)) return runtime;
-    if (runtime) {
-      payload.runtime = runtime;
-      renderRuntimeStatus(runtime);
-      markFresh();
-    } else {
-      renderRuntimeStatus(payload.runtime);
-    }
+    payload.runtime = runtime;
+    renderRuntimeStatus(runtime);
+    markFresh();
     return runtime;
+  }).catch(err => {
+    // A failed runtime fetch means the API is unreachable (offline). Surface
+    // that explicitly rather than falling back to a misleading "snapshot".
+    logDashboardError('runtime', err);
+    if (canRender(epoch, chainId)) setStatus('error', 'offline');
+    return null;
   });
 
   const statsJob = capture('stats', fetchJson(chainPathFor(chainId, '/api/stats'))).then(stats => {
