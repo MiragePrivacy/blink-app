@@ -362,6 +362,8 @@ html[data-theme="light"] .theme-toggle .icon-sun { display: none; }
 .dot.live  { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
 .dot.error { background: var(--red);    box-shadow: 0 0 8px var(--red); }
 
+#status-text.error { color: var(--red); }
+
 /* MAIN */
 main {
   max-width: 1480px;
@@ -503,9 +505,9 @@ main {
   position: absolute;
   left: 50%;
   top: calc(100% + 9px);
-  transform: translateX(-50%) translateY(-2px);
+  transform: translateX(-50%);
   width: max-content;
-  max-width: min(320px, 70vw);
+  max-width: min(280px, calc(100vw - 32px));
   padding: 8px 10px;
   background: var(--menu-bg);
   border: 1px solid var(--border-strong);
@@ -517,17 +519,17 @@ main {
   letter-spacing: 0;
   white-space: normal;
   pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
   z-index: 50;
-  transition: opacity 100ms ease, transform 100ms ease, visibility 100ms ease;
+  /* Hidden tooltips must not occupy layout: an absolutely-positioned,
+     visibility:hidden box still contributes horizontal overflow and, on
+     narrow screens, pushes the whole page off-screen. display:none removes
+     it from layout entirely. */
+  display: none;
 }
 
 .info-tip:hover::after,
 .info-tip:focus::after {
-  opacity: 1;
-  visibility: visible;
-  transform: translateX(-50%) translateY(0);
+  display: block;
 }
 
 /* SEGMENTED CONTROL */
@@ -730,6 +732,14 @@ main {
 }
 
 .chart-wrap.tall { height: 270px; }
+
+/* A bare <canvas> reports its default 300px intrinsic width as min-content,
+   which forces grid/flex parents wider than the viewport on small screens.
+   Cap it so charts always shrink to their container. */
+.chart-wrap canvas {
+  display: block;
+  max-width: 100%;
+}
 
 /* TABLE */
 .table-wrap {
@@ -956,11 +966,11 @@ tbody tr:last-child td { border-bottom: none; }
 
 /* RESPONSIVE */
 @media (max-width: 1100px) {
-  .kpi-row { grid-template-columns: repeat(3, 1fr); }
+  .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .kpi:nth-child(3n) { border-right: none; }
   .kpi { border-bottom: 1px solid var(--border); }
-  .grid-2 { grid-template-columns: 1fr; }
-  .query-body { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .query-body { grid-template-columns: minmax(0, 1fr); }
   .query-editor {
     border-right: none;
     border-bottom: 1px solid var(--border);
@@ -986,6 +996,24 @@ tbody tr:last-child td { border-bottom: none; }
   .panel-title {
     flex-basis: 100%;
     width: 100%;
+  }
+
+  /* Heads with a compact trailing cluster (pager, query actions) keep their
+     title and controls on one row instead of stacking. */
+  .pager-head,
+  .query-panel .panel-head {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .pager-head .panel-title,
+  .query-panel .panel-title {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+  }
+  .pager-head .pager,
+  .query-panel .query-actions {
+    flex: 0 0 auto;
   }
 
   .panel-head .seg {
@@ -1020,30 +1048,46 @@ tbody tr:last-child td { border-bottom: none; }
 @media (max-width: 600px) {
   main { padding: 16px; gap: 12px; }
   .topbar {
-    align-items: flex-start;
-    padding: 10px 16px;
-    gap: 10px;
+    flex-wrap: nowrap;
+    align-items: center;
+    padding: 10px 12px;
+    gap: 8px;
   }
   .brand {
-    width: 100%;
-    flex: 1 1 100%;
-    flex-wrap: wrap;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+    gap: 8px;
   }
   .status-block {
-    width: 100%;
-    justify-content: flex-start;
-    gap: 10px;
+    flex: 0 1 auto;
+    min-width: 0;
+    gap: 8px;
+  }
+  /* keep the status on one line; the colored dot already conveys state */
+  #status-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #status-text .status-detail { display: none; }
+  /* In the tight single-row heads the hover-only info tooltip has no room and
+     its button overflows into the trailing controls — drop it on mobile. */
+  .pager-head .info-tip,
+  .query-panel .panel-title .info-tip {
+    display: none;
   }
   .query-actions {
-    width: 100%;
+    width: auto;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 8px;
   }
   .query-status {
     max-width: none;
-    flex: 1 1 100%;
-    order: 3;
+    flex: 0 1 auto;
+    min-width: 0;
   }
   .top-refresh { display: none; }
   .chain-trigger { max-width: 132px; }
@@ -1052,7 +1096,7 @@ tbody tr:last-child td { border-bottom: none; }
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kpi:nth-child(odd)  { border-right: 1px solid var(--border); }
   .kpi:nth-child(even) { border-right: none; }
   .kpi-value { font-size: 18px; }
@@ -1094,6 +1138,13 @@ tbody tr:last-child td { border-bottom: none; }
     width: 100%;
     min-width: 0;
   }
+  /* In the column layout flex-basis maps to the main (vertical) axis, so the
+     row-layout `flex-basis: 130px` on number inputs would balloon their height.
+     Higher specificity than `.range-fields input`, so reset it explicitly. */
+  .range-fields input[type="number"] {
+    flex-basis: auto;
+    height: 27px;
+  }
   .range-summary {
     flex: 1 1 100%;
     width: 100%;
@@ -1120,4 +1171,10 @@ tbody tr:last-child td { border-bottom: none; }
   .query-editor {
     min-height: 280px;
   }
+}
+
+/* Very small phones (<340px): the transient query status has no room next to
+   the title and two action buttons — drop it so the row stays clean. */
+@media (max-width: 340px) {
+  .query-status { display: none; }
 }
