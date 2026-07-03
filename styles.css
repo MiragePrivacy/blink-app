@@ -1178,3 +1178,292 @@ tbody tr:last-child td { border-bottom: none; }
 @media (max-width: 340px) {
   .query-status { display: none; }
 }
+
+/* ============================================================
+   DOCS
+   ============================================================ */
+.doc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 80ms, background 80ms, border-color 80ms;
+}
+.doc-link:hover {
+  color: var(--text);
+  background: var(--hover);
+  border-color: var(--border-strong);
+}
+.doc-link svg { width: 13px; height: 13px; display: block; }
+
+.docs-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 24px 64px;
+  display: flex;
+  gap: 40px;
+  align-items: flex-start;
+  /* Match the dashboard's monospace identity across the whole docs body. */
+  font-family: var(--mono);
+}
+
+.docs-sidebar {
+  position: sticky;
+  top: 68px;
+  align-self: flex-start;
+  flex: 0 0 216px;
+  min-width: 0;
+}
+
+/* A flex item with min-width:0 clamps to the row (a grid item did not here),
+   so the wide code blocks and tables scroll inside the content column instead
+   of pushing the page out at narrow-desktop widths. */
+.docs-content { flex: 1 1 0; }
+
+.docs-sidebar-title {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 0 10px 8px;
+}
+
+.docs-nav {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-left: 1px solid var(--border);
+}
+
+/* The green active indicator is a single element that slides between items. */
+.docs-nav-slider {
+  position: absolute;
+  left: -1px;
+  top: 0;
+  width: 2px;
+  height: 0;
+  background: var(--accent);
+  pointer-events: none;
+  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1),
+              height 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.docs-nav-slider.no-anim { transition: none; }
+
+.docs-nav-item {
+  display: block;
+  padding: 7px 12px;
+  margin-left: -1px;
+  border-left: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 120ms ease, background 80ms;
+}
+.docs-nav-item:hover { color: var(--text); background: var(--hover); }
+.docs-nav-item.active { color: var(--accent); }
+
+.docs-content { min-width: 0; }
+
+.docs-page { min-width: 0; }
+.docs-page[hidden] { display: none; }
+
+.docs-page h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.docs-lede {
+  margin: 0 0 28px;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.docs-page h2 {
+  margin: 36px 0 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.docs-page h3 {
+  margin: 24px 0 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.docs-page p,
+.docs-page li {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+.docs-page p { margin: 0 0 12px; }
+.docs-page ul,
+.docs-page ol { margin: 0 0 14px; padding-left: 20px; }
+.docs-page li { margin: 4px 0; }
+.docs-page a.inline {
+  color: var(--accent);
+  border-bottom: 1px solid transparent;
+}
+.docs-page a.inline:hover { border-bottom-color: var(--accent); }
+.docs-page strong { color: var(--text); font-weight: 600; }
+
+.docs-page code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 1px 5px;
+  border: 1px solid var(--accent-dim);
+  overflow-wrap: anywhere;
+}
+
+.docs-page pre {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  background: var(--inset-bg);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+.docs-page pre code {
+  color: var(--text);
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.docs-page table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 18px;
+  table-layout: auto;
+}
+.docs-table-wrap { overflow-x: auto; margin: 0 0 18px; }
+.docs-table-wrap table { margin: 0; min-width: 520px; }
+.docs-page th,
+.docs-page td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  white-space: normal;
+}
+.docs-page th {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border-strong);
+}
+.docs-page td { color: var(--text-dim); }
+.docs-page td code { white-space: nowrap; }
+
+.docs-callout {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--amber);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.docs-callout strong { color: var(--amber); }
+
+.docs-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 44px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.docs-pager a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  min-width: 0;
+  transition: border-color 80ms, background 80ms;
+}
+.docs-pager a:hover { border-color: var(--border-strong); background: var(--hover); }
+.docs-pager a.next { text-align: right; align-items: flex-end; margin-left: auto; }
+.docs-pager .pager-dir {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.docs-pager .pager-label { font-size: 13px; color: var(--text); }
+.docs-pager a[hidden] { display: none; }
+
+@media (max-width: 860px) {
+  /* Plain block stacking on mobile: a single-column grid item does not reliably
+     clamp to its track, so wide <pre>/tables blow the page out instead of
+     scrolling. As blocks they take the container width and scroll internally. */
+  .docs-shell {
+    display: block;
+    padding: 16px 16px 48px;
+  }
+  .docs-sidebar {
+    position: static;
+    top: auto;
+    margin-bottom: 20px;
+  }
+  .docs-content { width: 100%; }
+  .docs-sidebar-title { display: none; }
+  .docs-nav {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-left: none;
+    border-bottom: 1px solid var(--border);
+    gap: 0;
+  }
+  .docs-nav::-webkit-scrollbar { display: none; }
+  .docs-nav-slider { display: none; }
+  .docs-nav-item {
+    flex: 0 0 auto;
+    margin-left: 0;
+    margin-bottom: -1px;
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .docs-nav-item.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--accent);
+  }
+  .docs-page h1 { font-size: 22px; }
+}
+
+/* Hide the Docs link's text label on small screens; keep the icon. */
+@media (max-width: 600px) {
+  .doc-link { padding: 0 8px; }
+  .doc-link .doc-link-text { display: none; }
+}
