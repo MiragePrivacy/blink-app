@@ -19,7 +19,7 @@
     } catch (_) { /* private browsing */ }
   </script>
   <link rel="stylesheet" href="./styles.css?v=41" />
-  <script type="module" src="./app/main.js?v=12"></script>
+  <script type="module" src="./app/main.js?v=13"></script>
 </head>
 <body>
   <nav class="topbar">
@@ -331,7 +331,6 @@
   n_code_bytes,
   is_verified
 FROM contract_metadata
-WHERE chain_id = 1
 ORDER BY block_number DESC, create_index DESC
 LIMIT 50</textarea>
         <div class="table-wrap query">
