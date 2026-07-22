@@ -1,7 +1,5 @@
-const API_BASE = 'https://blink-api.mirageprivacy.com';
-
 function apiUrl(path) {
-  return `${API_BASE}${path}`;
+  return path;
 }
 
 async function readJsonResponse(response, path) {
