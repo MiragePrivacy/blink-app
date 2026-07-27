@@ -984,13 +984,14 @@ tbody tr:last-child td { border-bottom: none; }
     padding-bottom: 10px;
   }
   .brand { flex: 1 1 auto; }
-  .chain-menu { left: auto; right: 0; }
+  .chain-menu { left: 0; right: auto; }
 }
 
 @media (max-width: 760px) {
   .panel-head {
     align-items: flex-start;
     gap: 10px;
+    justify-content: flex-start;
   }
 
   .panel-title {
@@ -1017,7 +1018,7 @@ tbody tr:last-child td { border-bottom: none; }
   }
 
   .panel-head .seg {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
   }
 
   .custom-range {
@@ -1090,6 +1091,13 @@ tbody tr:last-child td { border-bottom: none; }
     min-width: 0;
   }
   .top-refresh { display: none; }
+  .chain-picker { position: static; }
+  .chain-menu {
+    left: 12px;
+    right: auto;
+    min-width: 0;
+    max-width: calc(100% - 24px);
+  }
   .chain-trigger { max-width: 132px; }
   .chain-name {
     min-width: 0;
@@ -1106,11 +1114,11 @@ tbody tr:last-child td { border-bottom: none; }
   }
   /* seg + Custom share one tidy toolbar row under the title */
   .panel-head .seg {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     width: auto;
   }
   .seg button {
-    flex: 1 0 auto;
+    flex: 0 0 auto;
     padding: 6px 10px;
   }
   .range-custom-btn {
