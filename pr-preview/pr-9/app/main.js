@@ -1,4 +1,4 @@
-import { fetchJson, postJson } from './api.js?v=2';
+import { fetchJson, postJson } from './api.js';
 import {
   CHART_CACHE_MS,
   CHART_PREFS_KEY,
