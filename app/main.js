@@ -1385,7 +1385,7 @@ async function runSqlQuery() {
   try {
     const data = await postJson('/api/query', {
       sql: editor.value,
-      limit: 200,
+      limit: 1000,
       chain_id: selectedChainId(),
     });
     renderQueryResult(data);
