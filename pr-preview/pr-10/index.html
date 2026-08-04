@@ -317,7 +317,22 @@
         </div>
         <div class="query-actions">
           <span class="query-status" id="query-status">ready</span>
-          <button class="export-btn" id="query-export" type="button" disabled>Export CSV</button>
+          <div class="export-menu" id="query-export-menu">
+            <button class="export-btn" id="query-export" type="button" aria-haspopup="menu" aria-expanded="false" disabled>
+              <span id="query-export-label">Export CSV</span>
+              <span class="export-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="export-options" id="query-export-options" role="menu" hidden>
+              <button id="query-export-page" type="button" role="menuitem">
+                <span>Current page</span>
+                <small id="query-export-page-count">displayed rows</small>
+              </button>
+              <button id="query-export-all" type="button" role="menuitem">
+                <span>All results</span>
+                <small>every matching row</small>
+              </button>
+            </div>
+          </div>
           <button class="run-btn" id="query-run" type="button">Run</button>
         </div>
       </div>

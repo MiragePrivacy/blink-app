@@ -207,8 +207,9 @@
           <li>Results are returned in pages of at most <strong>1000 rows</strong>. Use the
             previous/next controls to traverse every match. Add a deterministic
             <code>ORDER BY</code> for stable pages, and omit your own <code>LIMIT</code> when you
-            want the complete result set. CSV export fetches every page and combines all matches
-            into one download. Query text is capped at 20,000 characters.</li>
+            want the complete result set. The CSV menu can export either the displayed page or
+            fetch every page and combine all matches into one download. Query text is capped at
+            20,000 characters.</li>
           <li>Blobs (addresses, hashes, bytecode) are returned as <code>0x…</code> hex strings.</li>
         </ul>
 

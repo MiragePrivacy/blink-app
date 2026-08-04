@@ -1313,6 +1313,7 @@ let lastQueryResult = null;
 function setQueryExportEnabled(enabled) {
   const button = document.getElementById('query-export');
   if (button) button.disabled = !enabled;
+  if (!enabled) setQueryExportMenuOpen(false);
 }
 
 function csvCell(value) {
@@ -1321,20 +1322,61 @@ function csvCell(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-async function exportQueryCsv() {
+function setQueryExportMenuOpen(open) {
+  const button = document.getElementById('query-export');
+  const options = document.getElementById('query-export-options');
+  if (!button || !options) return;
+  const shouldOpen = Boolean(open) && !button.disabled;
+  options.hidden = !shouldOpen;
+  button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+}
+
+function queryCsvParts(columns, rows) {
+  const parts = ['﻿', columns.map(csvCell).join(',')];
+  if (rows.length) {
+    parts.push('\r\n', rows.map(row => row.map(csvCell).join(',')).join('\r\n'));
+  }
+  return parts;
+}
+
+function downloadQueryCsv(parts, scope) {
+  const blob = new Blob(parts, { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `blink-query-${scope}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function exportCurrentQueryPage() {
+  if (!lastQueryResult || queryState.loading || queryState.exporting) return;
+  const columns = lastQueryResult.columns || [];
+  const rows = lastQueryResult.rows || [];
+  if (!columns.length || !rows.length) return;
+  setQueryExportMenuOpen(false);
+  downloadQueryCsv(queryCsvParts(columns, rows), 'page');
+  document.getElementById('query-status').textContent = `exported current page · ${fmtFull(rows.length)} rows`;
+}
+
+async function exportAllQueryResults() {
   if (!lastQueryResult || !queryState.submittedSql || queryState.loading || queryState.exporting) return;
   const button = document.getElementById('query-export');
+  const label = document.getElementById('query-export-label');
   const runButton = document.getElementById('query-run');
   const status = document.getElementById('query-status');
-  const originalLabel = button.textContent;
+  const originalLabel = label.textContent;
   const parts = ['﻿'];
   let offset = 0;
   let totalRows = 0;
   let wroteHeader = false;
 
   queryState.exporting = true;
+  setQueryExportMenuOpen(false);
   button.disabled = true;
-  button.textContent = 'Exporting';
+  label.textContent = 'Exporting';
   runButton.disabled = true;
   updateQueryPager();
 
@@ -1364,22 +1406,14 @@ async function exportQueryCsv() {
       offset = nextOffset;
     }
 
-    const blob = new Blob(parts, { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `blink-query-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadQueryCsv(parts, 'all');
     status.textContent = `exported ${fmtFull(totalRows)} rows`;
   } catch (err) {
     console.error(err);
     status.textContent = shortError(err.message);
   } finally {
     queryState.exporting = false;
-    button.textContent = originalLabel;
+    label.textContent = originalLabel;
     runButton.disabled = false;
     setQueryExportEnabled(Boolean(lastQueryResult?.rows?.length));
     updateQueryPager();
@@ -1393,6 +1427,8 @@ function renderQueryResult(data) {
   const tbody = table.querySelector('tbody');
   const cols = data.columns || [];
   const rows = data.rows || [];
+  const pageCount = document.getElementById('query-export-page-count');
+  if (pageCount) pageCount.textContent = `${fmtFull(rows.length)} displayed rows`;
   setQueryExportEnabled(cols.length > 0 && rows.length > 0);
 
   thead.innerHTML = cols.length
@@ -2391,7 +2427,24 @@ function attachQueryRunner() {
   const editor = document.getElementById('query-editor');
   button.addEventListener('click', () => runSqlQuery().catch(console.error));
   const exportButton = document.getElementById('query-export');
-  if (exportButton) exportButton.addEventListener('click', () => exportQueryCsv().catch(console.error));
+  const exportMenu = document.getElementById('query-export-menu');
+  if (exportButton) {
+    exportButton.addEventListener('click', event => {
+      event.stopPropagation();
+      const options = document.getElementById('query-export-options');
+      setQueryExportMenuOpen(options?.hidden);
+    });
+  }
+  document.getElementById('query-export-page').addEventListener('click', exportCurrentQueryPage);
+  document.getElementById('query-export-all').addEventListener('click', () => {
+    exportAllQueryResults().catch(console.error);
+  });
+  document.addEventListener('click', event => {
+    if (!exportMenu?.contains(event.target)) setQueryExportMenuOpen(false);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') setQueryExportMenuOpen(false);
+  });
   document.getElementById('query-prev').addEventListener('click', () => {
     if (queryState.loading || queryState.offset === 0) return;
     const offset = Math.max(0, queryState.offset - queryState.limit);
