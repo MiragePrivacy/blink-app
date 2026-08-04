@@ -64,6 +64,7 @@ const queryState = {
   offset: 0,
   hasMore: false,
   loading: false,
+  exporting: false,
   submittedSql: '',
   chainId: null,
 };
@@ -1328,21 +1329,69 @@ function buildCsv(columns, rows) {
   return lines.join('\r\n');
 }
 
-function exportQueryCsv() {
-  if (!lastQueryResult) return;
-  const cols = lastQueryResult.columns || [];
-  const rows = lastQueryResult.rows || [];
-  if (!cols.length) return;
-  const csv = buildCsv(cols, rows);
-  const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `blink-query-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+async function exportQueryCsv() {
+  if (!lastQueryResult || !queryState.submittedSql || queryState.loading || queryState.exporting) return;
+  const button = document.getElementById('query-export');
+  const runButton = document.getElementById('query-run');
+  const status = document.getElementById('query-status');
+  const originalLabel = button.textContent;
+  const parts = ['﻿'];
+  let offset = 0;
+  let totalRows = 0;
+  let wroteHeader = false;
+
+  queryState.exporting = true;
+  button.disabled = true;
+  button.textContent = 'Exporting';
+  runButton.disabled = true;
+  updateQueryPager();
+
+  try {
+    while (true) {
+      const data = await postJson('/api/query', {
+        sql: queryState.submittedSql,
+        limit: queryState.limit,
+        offset,
+        chain_id: queryState.chainId,
+      });
+      const columns = data.columns || [];
+      const rows = data.rows || [];
+      if (!wroteHeader) {
+        parts.push(columns.map(csvCell).join(','));
+        wroteHeader = true;
+      }
+      if (rows.length) {
+        parts.push('\r\n', rows.map(row => row.map(csvCell).join(',')).join('\r\n'));
+      }
+      totalRows += rows.length;
+      status.textContent = `exporting ${fmtFull(totalRows)} rows`;
+
+      if (!data.has_more) break;
+      const nextOffset = Number(data.offset || offset) + rows.length;
+      if (!rows.length || nextOffset <= offset) throw new Error('query export pagination did not advance');
+      offset = nextOffset;
+    }
+
+    const blob = new Blob(parts, { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `blink-query-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    status.textContent = `exported ${fmtFull(totalRows)} rows`;
+  } catch (err) {
+    console.error(err);
+    status.textContent = shortError(err.message);
+  } finally {
+    queryState.exporting = false;
+    button.textContent = originalLabel;
+    runButton.disabled = false;
+    setQueryExportEnabled(Boolean(lastQueryResult?.rows?.length));
+    updateQueryPager();
+  }
 }
 
 function renderQueryResult(data) {
@@ -1383,14 +1432,15 @@ function updateQueryPager() {
     else if (!rowCount) range.textContent = '0 rows';
     else range.textContent = `${fmtFull(offset + 1)}–${fmtFull(offset + rowCount)}${queryState.hasMore ? '+' : ''}`;
   }
-  if (prev) prev.disabled = queryState.loading || offset === 0;
-  if (next) next.disabled = queryState.loading || !queryState.hasMore;
+  if (prev) prev.disabled = queryState.loading || queryState.exporting || offset === 0;
+  if (next) next.disabled = queryState.loading || queryState.exporting || !queryState.hasMore;
 }
 
 function resetQueryState() {
   queryState.offset = 0;
   queryState.hasMore = false;
   queryState.loading = false;
+  queryState.exporting = false;
   queryState.submittedSql = '';
   queryState.chainId = null;
   updateQueryPager();
@@ -1414,7 +1464,7 @@ async function runSqlQuery(offset = 0, submittedQuery = false) {
   const button = document.getElementById('query-run');
   const status = document.getElementById('query-status');
   const editor = document.getElementById('query-editor');
-  if (queryState.loading) return;
+  if (queryState.loading || queryState.exporting) return;
 
   const sql = submittedQuery ? queryState.submittedSql : editor.value;
   const chainId = submittedQuery ? queryState.chainId : selectedChainId();
@@ -2349,7 +2399,7 @@ function attachQueryRunner() {
   const editor = document.getElementById('query-editor');
   button.addEventListener('click', () => runSqlQuery().catch(console.error));
   const exportButton = document.getElementById('query-export');
-  if (exportButton) exportButton.addEventListener('click', exportQueryCsv);
+  if (exportButton) exportButton.addEventListener('click', () => exportQueryCsv().catch(console.error));
   document.getElementById('query-prev').addEventListener('click', () => {
     if (queryState.loading || queryState.offset === 0) return;
     const offset = Math.max(0, queryState.offset - queryState.limit);
