@@ -204,8 +204,10 @@
           <li>File / external scanners are blocked (<code>read_csv</code>,
             <code>read_parquet</code>, <code>read_json</code>, <code>read_blob</code>,
             <code>*_scan</code>, <code>httpfs</code>).</li>
-          <li>Results are capped at <strong>1000 rows</strong>; a <code>LIMIT</code> is applied
-            for you (and any larger <code>LIMIT</code> you set is clamped down). Query text is
+          <li>Results are returned in pages of at most <strong>1000 rows</strong>. Use the
+            previous/next controls to traverse every match. Add a deterministic
+            <code>ORDER BY</code> for stable pages, and omit your own <code>LIMIT</code> when you
+            want the complete result set. CSV export contains the current page. Query text is
             capped at 20,000 characters.</li>
           <li>Blobs (addresses, hashes, bytecode) are returned as <code>0x…</code> hex strings.</li>
         </ul>
@@ -241,10 +243,9 @@
           </table>
         </div>
         <div class="docs-callout">
-          <strong>Chain scoping.</strong> A query against <code>contract_metadata</code> only
-          sees the chain you've selected. To query across all chains, use
-          <code>contract_metadata_all</code> (same columns plus <code>chain_id</code>) and filter
-          <code>chain_id</code> yourself.
+          <strong>Chain scoping.</strong> Queries against <code>contract_metadata</code> and
+          <code>contract_opcodes</code> only see the chain you've selected. To query across all
+          chains, use their <code>_all</code> variants and filter <code>chain_id</code> yourself.
         </div>
 
         <h2>Other queryable views</h2>
@@ -255,6 +256,10 @@
           <li><code>decoded_bytecodes</code>: one decode row per <code>code_hash</code>
             (<code>language</code>, <code>compiler_version</code>, the <code>is_*</code> label
             flags, <code>uses_push0</code>, <code>has_source_hash</code>).</li>
+          <li><code>contract_opcodes</code>: one row per contract and code kind, with a
+            deduplicated <code>opcodes</code> list. Filter <code>code_kind</code> as
+            <code>creation</code> or <code>runtime</code> and test opcode presence with
+            <code>list_contains(opcodes, 'CREATE2')</code>.</li>
           <li><code>contracts</code>: the only view carrying <strong>creation / deployment
             bytecode</strong> (<code>init_code</code>) alongside runtime <code>code</code>, with
             its own <code>chain_id</code>.</li>

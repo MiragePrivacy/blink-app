@@ -313,7 +313,7 @@
         <div class="panel-title">
           <span class="title-tag">QUERY</span>
           <h2>SQL explorer</h2>
-          <button class="info-tip" type="button" aria-label="About SQL explorer" data-tooltip="Read-only SQL over Blink dashboard views such as contract_metadata, bytecodes, and decoded_bytecodes."></button>
+          <button class="info-tip" type="button" aria-label="About SQL explorer" data-tooltip="Read-only SQL over Blink dashboard views such as contract_metadata, contract_opcodes, bytecodes, and decoded_bytecodes."></button>
         </div>
         <div class="query-actions">
           <span class="query-status" id="query-status">ready</span>
@@ -333,13 +333,20 @@
 FROM contract_metadata
 ORDER BY block_number DESC, create_index DESC
 LIMIT 50</textarea>
-        <div class="table-wrap query">
-          <table id="query-table">
-            <thead></thead>
-            <tbody>
-              <tr><td class="query-empty">no query results</td></tr>
-            </tbody>
-          </table>
+        <div class="query-results">
+          <div class="query-pagebar">
+            <span class="pager-range" id="query-range">—</span>
+            <button class="pager-btn" id="query-prev" type="button" aria-label="previous query page" disabled>‹</button>
+            <button class="pager-btn" id="query-next" type="button" aria-label="next query page" disabled>›</button>
+          </div>
+          <div class="table-wrap query">
+            <table id="query-table">
+              <thead></thead>
+              <tbody>
+                <tr><td class="query-empty">no query results</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>

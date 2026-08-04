@@ -59,6 +59,14 @@ const recentState = {
   hasMore: false,
   loading: false,
 };
+const queryState = {
+  limit: 1000,
+  offset: 0,
+  hasMore: false,
+  loading: false,
+  submittedSql: '',
+  chainId: null,
+};
 
 const chainState = {
   chains,
@@ -1363,8 +1371,34 @@ function renderQueryResult(data) {
   }
 }
 
+function updateQueryPager() {
+  const range = document.getElementById('query-range');
+  const prev = document.getElementById('query-prev');
+  const next = document.getElementById('query-next');
+  const rowCount = Number(lastQueryResult?.row_count || 0);
+  const offset = Number(lastQueryResult?.offset || 0);
+
+  if (range) {
+    if (!lastQueryResult) range.textContent = '—';
+    else if (!rowCount) range.textContent = '0 rows';
+    else range.textContent = `${fmtFull(offset + 1)}–${fmtFull(offset + rowCount)}${queryState.hasMore ? '+' : ''}`;
+  }
+  if (prev) prev.disabled = queryState.loading || offset === 0;
+  if (next) next.disabled = queryState.loading || !queryState.hasMore;
+}
+
+function resetQueryState() {
+  queryState.offset = 0;
+  queryState.hasMore = false;
+  queryState.loading = false;
+  queryState.submittedSql = '';
+  queryState.chainId = null;
+  updateQueryPager();
+}
+
 function clearQueryResult(message = 'no query results') {
   lastQueryResult = null;
+  resetQueryState();
   setQueryExportEnabled(false);
   const status = document.getElementById('query-status');
   if (status) status.textContent = 'ready';
@@ -1376,29 +1410,52 @@ function clearQueryResult(message = 'no query results') {
   if (tbody) tbody.innerHTML = `<tr><td class="query-empty">${escapeHtml(message)}</td></tr>`;
 }
 
-async function runSqlQuery() {
+async function runSqlQuery(offset = 0, submittedQuery = false) {
   const button = document.getElementById('query-run');
   const status = document.getElementById('query-status');
   const editor = document.getElementById('query-editor');
+  if (queryState.loading) return;
+
+  const sql = submittedQuery ? queryState.submittedSql : editor.value;
+  const chainId = submittedQuery ? queryState.chainId : selectedChainId();
+  if (!submittedQuery) {
+    queryState.submittedSql = sql;
+    queryState.chainId = chainId;
+  }
+
+  queryState.loading = true;
   button.disabled = true;
   status.textContent = 'running';
+  updateQueryPager();
   try {
     const data = await postJson('/api/query', {
-      sql: editor.value,
-      limit: 1000,
-      chain_id: selectedChainId(),
+      sql,
+      limit: queryState.limit,
+      offset,
+      chain_id: chainId,
     });
+    queryState.offset = Number(data.offset || 0);
+    queryState.hasMore = Boolean(data.has_more);
     renderQueryResult(data);
-    status.textContent = `${fmtFull(data.row_count)} rows · ${fmtFull(data.elapsed_ms)} ms`;
+    const start = data.row_count ? queryState.offset + 1 : 0;
+    const end = queryState.offset + data.row_count;
+    status.textContent = data.row_count
+      ? `rows ${fmtFull(start)}–${fmtFull(end)} · ${fmtFull(data.elapsed_ms)} ms`
+      : `0 rows · ${fmtFull(data.elapsed_ms)} ms`;
   } catch (err) {
     console.error(err);
     status.textContent = shortError(err.message);
-    lastQueryResult = null;
-    setQueryExportEnabled(false);
-    const tbody = document.querySelector('#query-table tbody');
-    tbody.innerHTML = `<tr><td class="query-empty">${escapeHtml(err.message)}</td></tr>`;
+    if (!submittedQuery) {
+      lastQueryResult = null;
+      queryState.hasMore = false;
+      setQueryExportEnabled(false);
+      const tbody = document.querySelector('#query-table tbody');
+      tbody.innerHTML = `<tr><td class="query-empty">${escapeHtml(err.message)}</td></tr>`;
+    }
   } finally {
+    queryState.loading = false;
     button.disabled = false;
+    updateQueryPager();
   }
 }
 
@@ -2293,6 +2350,15 @@ function attachQueryRunner() {
   button.addEventListener('click', () => runSqlQuery().catch(console.error));
   const exportButton = document.getElementById('query-export');
   if (exportButton) exportButton.addEventListener('click', exportQueryCsv);
+  document.getElementById('query-prev').addEventListener('click', () => {
+    if (queryState.loading || queryState.offset === 0) return;
+    const offset = Math.max(0, queryState.offset - queryState.limit);
+    runSqlQuery(offset, true).catch(console.error);
+  });
+  document.getElementById('query-next').addEventListener('click', () => {
+    if (queryState.loading || !queryState.hasMore) return;
+    runSqlQuery(queryState.offset + queryState.limit, true).catch(console.error);
+  });
   editor.addEventListener('keydown', event => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
