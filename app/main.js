@@ -1321,14 +1321,6 @@ function csvCell(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-function buildCsv(columns, rows) {
-  const lines = [columns.map(csvCell).join(',')];
-  for (const row of rows) {
-    lines.push(row.map(csvCell).join(','));
-  }
-  return lines.join('\r\n');
-}
-
 async function exportQueryCsv() {
   if (!lastQueryResult || !queryState.submittedSql || queryState.loading || queryState.exporting) return;
   const button = document.getElementById('query-export');
