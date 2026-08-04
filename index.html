@@ -313,11 +313,26 @@
         <div class="panel-title">
           <span class="title-tag">QUERY</span>
           <h2>SQL explorer</h2>
-          <button class="info-tip" type="button" aria-label="About SQL explorer" data-tooltip="Read-only SQL over Blink dashboard views such as contract_metadata, bytecodes, and decoded_bytecodes."></button>
+          <button class="info-tip" type="button" aria-label="About SQL explorer" data-tooltip="Read-only SQL over Blink dashboard views such as contract_metadata, contract_opcodes, bytecodes, and decoded_bytecodes."></button>
         </div>
         <div class="query-actions">
           <span class="query-status" id="query-status">ready</span>
-          <button class="export-btn" id="query-export" type="button" disabled>Export CSV</button>
+          <div class="export-menu" id="query-export-menu">
+            <button class="export-btn" id="query-export" type="button" aria-haspopup="menu" aria-expanded="false" disabled>
+              <span id="query-export-label">Export CSV</span>
+              <span class="export-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="export-options" id="query-export-options" role="menu" hidden>
+              <button id="query-export-page" type="button" role="menuitem">
+                <span>Current page</span>
+                <small id="query-export-page-count">displayed rows</small>
+              </button>
+              <button id="query-export-all" type="button" role="menuitem">
+                <span>All results</span>
+                <small>every matching row</small>
+              </button>
+            </div>
+          </div>
           <button class="run-btn" id="query-run" type="button">Run</button>
         </div>
       </div>
@@ -333,13 +348,20 @@
 FROM contract_metadata
 ORDER BY block_number DESC, create_index DESC
 LIMIT 50</textarea>
-        <div class="table-wrap query">
-          <table id="query-table">
-            <thead></thead>
-            <tbody>
-              <tr><td class="query-empty">no query results</td></tr>
-            </tbody>
-          </table>
+        <div class="query-results">
+          <div class="query-pagebar">
+            <span class="pager-range" id="query-range">—</span>
+            <button class="pager-btn" id="query-prev" type="button" aria-label="previous query page" disabled>‹</button>
+            <button class="pager-btn" id="query-next" type="button" aria-label="next query page" disabled>›</button>
+          </div>
+          <div class="table-wrap query">
+            <table id="query-table">
+              <thead></thead>
+              <tbody>
+                <tr><td class="query-empty">no query results</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
