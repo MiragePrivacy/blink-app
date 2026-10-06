@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title">
+  <title id="title">Blink</title>
+  <style>
+    .lid {
+      animation: blink-lid 5.2s infinite;
+      fill: #bdff00;
+      transform-box: fill-box;
+    }
+
+    .top {
+      transform-origin: center top;
+    }
+
+    .bottom {
+      transform-origin: center bottom;
+    }
+
+    @keyframes blink-lid {
+      0%, 8%, 62%, 70%, 100% {
+        transform: scaleY(0);
+      }
+
+      64%, 66% {
+        transform: scaleY(1);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .lid {
+        animation: none;
+      }
+    }
+  </style>
+  <rect width="32" height="32" fill="#bdff00" />
+  <defs>
+    <clipPath id="eye-clip">
+      <path d="M3 16c4.6-7.2 9-9.6 13-9.6s8.4 2.4 13 9.6c-4.6 7.2-9 9.6-13 9.6S7.6 23.2 3 16Z" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#eye-clip)">
+    <path fill="#050505" d="M3 16c4.6-7.2 9-9.6 13-9.6s8.4 2.4 13 9.6c-4.6 7.2-9 9.6-13 9.6S7.6 23.2 3 16Z" />
+    <circle cx="16" cy="16" r="5.2" fill="#bdff00" />
+    <circle cx="16" cy="16" r="2.2" fill="#050505" />
+    <rect class="lid top" x="0" y="0" width="32" height="16" />
+    <rect class="lid bottom" x="0" y="16" width="32" height="16" />
+  </g>
+</svg>

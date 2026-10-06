@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>blink · docs</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Blink documentation: tracked contract labels and a guide to the SQL explorer." />
+  <link rel="icon" type="image/svg+xml" href="./assets/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script>
+    try {
+      if (localStorage.getItem('blink.theme') === 'light') {
+        document.documentElement.dataset.theme = 'light';
+      }
+    } catch (_) { /* private browsing */ }
+  </script>
+  <link rel="stylesheet" href="./styles.css?v=41" />
+  <script type="module" src="./app/docs.js?v=2"></script>
+</head>
+<body>
+  <nav class="topbar">
+    <div class="brand">
+      <a class="mark" role="img" aria-label="Blink logo" href="./index.html">
+        <img src="./assets/logo.svg" alt="" aria-hidden="true" />
+      </a>
+      <span class="wordmark">BLINK</span>
+      <span class="meta-tag">DOCS</span>
+    </div>
+    <div class="status-block">
+      <a class="doc-link" href="./index.html" aria-label="Back to dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M19 12H5M11 18l-6-6 6-6" />
+        </svg>
+        <span class="doc-link-text">Dashboard</span>
+      </a>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to light mode">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+  <div class="docs-shell">
+    <aside class="docs-sidebar">
+      <div class="docs-sidebar-title">Documentation</div>
+      <nav class="docs-nav">
+        <span class="docs-nav-slider" aria-hidden="true"></span>
+        <a class="docs-nav-item" data-doc="introduction" href="#introduction">Introduction</a>
+        <a class="docs-nav-item" data-doc="labels" href="#labels">Tracked labels</a>
+        <a class="docs-nav-item" data-doc="sql" href="#sql">SQL guide</a>
+      </nav>
+    </aside>
+
+    <main class="docs-content">
+      <!-- INTRODUCTION -->
+      <article class="docs-page" id="doc-introduction">
+        <h1>Introduction</h1>
+        <p class="docs-lede">
+          Blink reads the bytecode of every contract deployed on the chains it indexes and
+          works out what each one is: its token standard, whether it is a proxy, what compiled
+          it, how large it is, and whether its source is verified.
+        </p>
+        <p>
+          It never sees an ABI or uploaded source. Every signal comes from static analysis of
+          onchain bytecode, so when a contract is labelled, it is because the bytecode
+          says so. The rule behind each label lives in
+          <a class="inline" href="#labels">Tracked labels</a>.
+        </p>
+        <p>
+          The dashboard turns that into a handful of charts (deployments, verification, size,
+          compilers, standards) plus a read-only SQL explorer for asking your own questions.
+        </p>
+
+        <h2>Chains</h2>
+        <p>
+          Two for now: <strong>Ethereum</strong> and <strong>Gnosis</strong>. The switcher in
+          the topbar sets the active chain.
+        </p>
+
+        <div class="docs-pager">
+          <a class="prev" hidden></a>
+          <a class="next"></a>
+        </div>
+      </article>
+
+      <!-- TRACKED LABELS -->
+      <article class="docs-page" id="doc-labels" hidden>
+        <h1>Tracked labels</h1>
+        <p class="docs-lede">
+          Every label comes from one static pass over a contract's
+          <strong>runtime bytecode</strong>. The scanner walks real opcodes and skips over push
+          data, so a function selector only counts when it is an actual <code>PUSH4</code>
+          operand, not four stray bytes sitting inside another instruction. Each rule below is
+          the exact one Blink applies.
+        </p>
+
+        <h2>Token standards (function selectors)</h2>
+        <p>
+          A standard is flagged only when <strong>all</strong> of its defining 4-byte function
+          selectors appear as <code>PUSH4</code> operands in the runtime code.
+        </p>
+        <div class="docs-table-wrap">
+          <table>
+            <thead>
+              <tr><th>Label</th><th>Column</th><th>Requires ALL selectors</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>ERC-20</td>
+                <td><code>is_erc20</code></td>
+                <td><code>0x18160ddd</code> totalSupply() · <code>0xa9059cbb</code> transfer() · <code>0xdd62ed3e</code> allowance()</td>
+              </tr>
+              <tr>
+                <td>ERC-721</td>
+                <td><code>is_erc721</code></td>
+                <td><code>0x6352211e</code> ownerOf() · <code>0x42842e0e</code> safeTransferFrom()</td>
+              </tr>
+              <tr>
+                <td>ERC-1155</td>
+                <td><code>is_erc1155</code></td>
+                <td><code>0x4e1273f4</code> balanceOfBatch() · <code>0x2eb2c2d6</code> safeBatchTransferFrom()</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="docs-callout">
+          <strong>Mutually exclusive.</strong> Classification is prioritized
+          <strong>ERC-1155 &gt; ERC-721 &gt; ERC-20</strong>. A contract that satisfies more
+          than one selector mask is labelled only as the highest-priority standard, so
+          <code>is_erc20</code>, <code>is_erc721</code>, and <code>is_erc1155</code> are never
+          both true on the same row, and an ERC-1155 that also exposes ERC-20 selectors counts
+          only as ERC-1155.
+        </div>
+
+        <h2>EIP-1167 minimal proxy</h2>
+        <p>Column <code>is_proxy_minimal</code>. Matches the canonical 45-byte clone
+          <em>exactly</em>: runtime length must be 45 bytes, with a fixed 10-byte prefix, a
+          variable 20-byte implementation address, and a fixed 15-byte suffix.</p>
+        <pre><code>36 3d 3d 37 3d 3d 3d 36 3d 73   &lt;20-byte implementation address&gt;   5a f4 3d 82 80 3e 90 3d 91 60 2b 57 fd 5b f3
+└──────── prefix (10) ────────┘  └──────── address ────────┘  └───────────── suffix (15) ─────────────┘</code></pre>
+        <div class="docs-callout">
+          <strong>Canonical only.</strong> Optimized or variant minimal proxies (different
+          push layout, or any length other than 45 bytes) are <strong>not</strong> matched.
+        </div>
+
+        <h2>EIP-1967 proxy</h2>
+        <p>Column <code>is_proxy_eip1967</code>. Flagged when a <code>PUSH32</code> operand in
+          the runtime code equals the EIP-1967 implementation slot constant
+          (<code>keccak256("eip1967.proxy.implementation") - 1</code>):</p>
+        <pre><code>0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc</code></pre>
+        <div class="docs-callout">
+          <strong>Implementation slot only.</strong> The EIP-1967 admin slot and beacon slot
+          are not tracked.
+        </div>
+
+        <h2>PUSH0 opcode</h2>
+        <p>Column <code>uses_push0</code>. True when the <code>PUSH0</code> opcode
+          (<code>0x5f</code>) occurs as a real instruction in the runtime code. Because the
+          scanner skips push immediates, a <code>0x5f</code> byte that merely sits inside
+          another push's data does not count. This is a genuine <code>PUSH0</code> usage
+          signal (a proxy for a Solidity 0.8.20+ / Shanghai-era compile).</p>
+
+        <h2>Source metadata hash</h2>
+        <p>Column <code>has_source_hash</code>. Solidity and Vyper append a CBOR metadata
+          trailer to the runtime bytecode. Blink reads the last two bytes as the trailer
+          length, parses the CBOR map, and sets <code>has_source_hash = true</code> when that
+          map contains an <code>ipfs</code>, <code>bzzr0</code>, or <code>bzzr1</code> key,
+          meaning the contract embeds a content hash of its source metadata.</p>
+        <p>The same CBOR trailer is where <code>language</code> (Solidity / Vyper / Other) and
+          <code>compiler_version</code> come from: a <code>solc</code> or <code>vyper</code>
+          key carries the version bytes, formatted <code>major.minor.patch</code>.</p>
+
+        <div class="docs-pager">
+          <a class="prev"></a>
+          <a class="next"></a>
+        </div>
+      </article>
+
+      <!-- SQL GUIDE -->
+      <article class="docs-page" id="doc-sql" hidden>
+        <h1>SQL guide</h1>
+        <p class="docs-lede">
+          The explorer runs your query as read-only <strong>DuckDB</strong> SQL and shows the
+          result as a table you can export to CSV. Queries are scoped to whichever chain is
+          selected in the topbar. Below are the rules, the schema, and a stack of examples to
+          copy.
+        </p>
+
+        <h2>Rules &amp; limits</h2>
+        <ul>
+          <li>Statements must begin with <code>SELECT</code> or <code>WITH</code>. Only a
+            <strong>single statement</strong> is allowed (one optional trailing <code>;</code>).</li>
+          <li>Read-only. Anything that writes or changes state is rejected, including
+            <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code>, <code>CREATE</code>,
+            <code>DROP</code>, <code>ALTER</code>, <code>COPY</code>, <code>ATTACH</code>,
+            <code>PRAGMA</code>, <code>SET</code>, <code>INSTALL</code>/<code>LOAD</code>.</li>
+          <li>File / external scanners are blocked (<code>read_csv</code>,
+            <code>read_parquet</code>, <code>read_json</code>, <code>read_blob</code>,
+            <code>*_scan</code>, <code>httpfs</code>).</li>
+          <li>Results are capped at <strong>1000 rows</strong>; a <code>LIMIT</code> is applied
+            for you (and any larger <code>LIMIT</code> you set is clamped down). Query text is
+            capped at 20,000 characters.</li>
+          <li>Blobs (addresses, hashes, bytecode) are returned as <code>0x…</code> hex strings.</li>
+        </ul>
+
+        <h2>The main table: <code>contract_metadata</code></h2>
+        <p>
+          This is the table the default query uses and the one you'll want most of the time.
+        </p>
+        <div class="docs-table-wrap">
+          <table>
+            <thead><tr><th>Column</th><th>Type</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>address</code></td><td>text</td><td>contract address, <code>0x…</code></td></tr>
+              <tr><td><code>block_number</code></td><td>int</td><td>deployment block</td></tr>
+              <tr><td><code>create_index</code></td><td>int</td><td>ordering within a block</td></tr>
+              <tr><td><code>deployer_address</code></td><td>text</td><td>deployer, <code>0x…</code></td></tr>
+              <tr><td><code>code_hash_hex</code></td><td>text</td><td>runtime code hash, <code>0x…</code></td></tr>
+              <tr><td><code>n_code_bytes</code></td><td>int</td><td>runtime bytecode length</td></tr>
+              <tr><td><code>language</code></td><td>text</td><td><code>solidity</code> / <code>vyper</code> / <code>other</code></td></tr>
+              <tr><td><code>compiler_version</code></td><td>text</td><td>e.g. <code>0.8.24</code></td></tr>
+              <tr><td><code>is_erc20</code></td><td>bool</td><td>ERC-20 selector mask (see labels)</td></tr>
+              <tr><td><code>is_erc721</code></td><td>bool</td><td>ERC-721</td></tr>
+              <tr><td><code>is_erc1155</code></td><td>bool</td><td>ERC-1155</td></tr>
+              <tr><td><code>is_proxy_eip1967</code></td><td>bool</td><td>EIP-1967 proxy</td></tr>
+              <tr><td><code>is_proxy_minimal</code></td><td>bool</td><td>EIP-1167 minimal proxy</td></tr>
+              <tr><td><code>uses_push0</code></td><td>bool</td><td>runtime uses <code>PUSH0</code></td></tr>
+              <tr><td><code>has_source_hash</code></td><td>bool</td><td>CBOR source-metadata hash present</td></tr>
+              <tr><td><code>is_verified</code></td><td>bool</td><td>matched in the verification registry</td></tr>
+              <tr><td><code>contract_name</code></td><td>text</td><td>verified name, if any</td></tr>
+              <tr><td><code>verification_source</code></td><td>text</td><td>where the verification came from</td></tr>
+              <tr><td><code>decoded_at</code></td><td>timestamp</td><td>when bytecode was decoded</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="docs-callout">
+          <strong>Chain scoping.</strong> A query against <code>contract_metadata</code> only
+          sees the chain you've selected. To query across all chains, use
+          <code>contract_metadata_all</code> (same columns plus <code>chain_id</code>) and filter
+          <code>chain_id</code> yourself.
+        </div>
+
+        <h2>Other queryable views</h2>
+        <ul>
+          <li><code>bytecodes</code>: distinct runtime bytecodes, with <code>code_hash_hex</code>,
+            <code>n_code_bytes</code>, <code>code</code> (the runtime bytecode blob), and
+            <code>contract_count</code> (deployments sharing this hash).</li>
+          <li><code>decoded_bytecodes</code>: one decode row per <code>code_hash</code>
+            (<code>language</code>, <code>compiler_version</code>, the <code>is_*</code> label
+            flags, <code>uses_push0</code>, <code>has_source_hash</code>).</li>
+          <li><code>contracts</code>: the only view carrying <strong>creation / deployment
+            bytecode</strong> (<code>init_code</code>) alongside runtime <code>code</code>, with
+            its own <code>chain_id</code>.</li>
+        </ul>
+        <div class="docs-callout">
+          <strong>Bytecode availability.</strong> <code>code</code> and <code>init_code</code>
+          are populated only when the underlying bytecode snapshot / extraction data is loaded
+          for that chain; otherwise they are <code>NULL</code>. The label flags
+          (<code>is_erc20</code>, <code>uses_push0</code>, …) are always available on
+          <code>contract_metadata</code> regardless.
+        </div>
+
+        <h2>Examples: filter by what a contract is</h2>
+        <p>Each of these runs against the chain selected in the topbar. Every label is just a
+          boolean column, so you filter on it directly.</p>
+
+        <h3>ERC-20 tokens</h3>
+        <pre><code>SELECT address, compiler_version, is_verified
+FROM contract_metadata
+WHERE is_erc20
+ORDER BY block_number DESC
+LIMIT 100</code></pre>
+
+        <h3>NFTs (ERC-721 or ERC-1155)</h3>
+        <pre><code>SELECT address, contract_name, is_verified
+FROM contract_metadata
+WHERE is_erc721 OR is_erc1155
+ORDER BY block_number DESC
+LIMIT 100</code></pre>
+
+        <h3>Proxies (either kind)</h3>
+        <pre><code>SELECT address, is_proxy_eip1967, is_proxy_minimal
+FROM contract_metadata
+WHERE is_proxy_eip1967 OR is_proxy_minimal
+ORDER BY block_number DESC
+LIMIT 100</code></pre>
+
+        <h3>Contracts using the PUSH0 opcode</h3>
+        <pre><code>SELECT address, compiler_version, n_code_bytes
+FROM contract_metadata
+WHERE uses_push0
+ORDER BY block_number DESC</code></pre>
+
+        <h3>Recently verified, with a name</h3>
+        <pre><code>SELECT block_number, address, contract_name, compiler_version
+FROM contract_metadata
+WHERE is_verified AND contract_name IS NOT NULL
+ORDER BY block_number DESC
+LIMIT 50</code></pre>
+
+        <h3>Carries a source hash but is not verified</h3>
+        <p>Contracts that embedded a source-metadata hash yet never matched the verification
+          registry: good candidates to go verify.</p>
+        <pre><code>SELECT address, compiler_version, language
+FROM contract_metadata
+WHERE has_source_hash AND NOT is_verified
+ORDER BY block_number DESC
+LIMIT 100</code></pre>
+
+        <h3>Largest contracts, near the size cap</h3>
+        <p>The EVM caps runtime bytecode at 24,576 bytes; these sit right up against it.</p>
+        <pre><code>SELECT address, n_code_bytes, compiler_version
+FROM contract_metadata
+ORDER BY n_code_bytes DESC
+LIMIT 20</code></pre>
+
+        <h2>Examples: counts and breakdowns</h2>
+
+        <h3>Contracts by language</h3>
+        <pre><code>SELECT language, COUNT(*) AS n
+FROM contract_metadata
+GROUP BY language
+ORDER BY n DESC</code></pre>
+
+        <h3>Top compiler versions</h3>
+        <pre><code>SELECT compiler_version, COUNT(*) AS n
+FROM contract_metadata
+WHERE compiler_version IS NOT NULL
+GROUP BY compiler_version
+ORDER BY n DESC
+LIMIT 20</code></pre>
+
+        <h3>PUSH0 adoption by compiler version</h3>
+        <p><code>COUNT(*) FILTER (WHERE ...)</code> counts a subset alongside the total in one
+          pass.</p>
+        <pre><code>SELECT compiler_version,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE uses_push0) AS with_push0
+FROM contract_metadata
+WHERE compiler_version IS NOT NULL
+GROUP BY compiler_version
+ORDER BY total DESC
+LIMIT 25</code></pre>
+
+        <h3>Verification coverage by compiler</h3>
+        <pre><code>SELECT compiler_version,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE is_verified) AS verified
+FROM contract_metadata
+WHERE compiler_version IS NOT NULL
+GROUP BY compiler_version
+ORDER BY total DESC
+LIMIT 25</code></pre>
+
+        <h3>Contracts per chain (all chains)</h3>
+        <p>Reach past the selected chain with <code>contract_metadata_all</code>, which keeps the
+          <code>chain_id</code> column.</p>
+        <pre><code>SELECT chain_id, COUNT(*) AS contracts
+FROM contract_metadata_all
+GROUP BY chain_id
+ORDER BY contracts DESC</code></pre>
+
+        <h2>Examples: working with bytecode</h2>
+
+        <h3>Distinct first-20-byte prefixes of deployment bytecode</h3>
+        <p>Deployment (creation) bytecode is <code>init_code</code> on the
+          <code>contracts</code> view. DuckDB's <code>substr()</code> works on blobs, so you can
+          take a byte prefix and count distinct values. This view keeps its own
+          <code>chain_id</code>, so scope it explicitly:</p>
+        <pre><code>SELECT COUNT(DISTINCT substr(init_code, 1, 20)) AS distinct_prefixes
+FROM contracts
+WHERE chain_id = 1
+  AND init_code IS NOT NULL</code></pre>
+        <p>Same idea on <strong>runtime</strong> bytecode (usually cheaper, one row per distinct
+          code hash):</p>
+        <pre><code>SELECT COUNT(DISTINCT substr(code, 1, 20)) AS distinct_runtime_prefixes
+FROM bytecodes
+WHERE code IS NOT NULL</code></pre>
+        <div class="docs-callout">
+          <strong>Heads up.</strong> <code>init_code</code> and <code>code</code> exist only when
+          bytecode data has been loaded for the chain. If they are <code>NULL</code> everywhere,
+          these counts come back 0.
+        </div>
+
+        <h3>Most deployed bytecodes</h3>
+        <pre><code>SELECT code_hash_hex, contract_count, n_code_bytes
+FROM bytecodes
+ORDER BY contract_count DESC
+LIMIT 20</code></pre>
+
+        <h3>Implementation address behind minimal proxies</h3>
+        <p>In an EIP-1167 clone the 20-byte implementation address sits at bytes 11 to 30 of the
+          runtime code. Pull it out with <code>substr()</code>; blobs come back as
+          <code>0x…</code> hex. Join the decode flags to the raw bytecode on
+          <code>code_hash</code>:</p>
+        <pre><code>SELECT b.code_hash_hex,
+       substr(b.code, 11, 20) AS implementation
+FROM bytecodes b
+JOIN decoded_bytecodes d ON d.code_hash = b.code_hash
+WHERE d.is_proxy_minimal
+  AND b.code IS NOT NULL
+LIMIT 50</code></pre>
+
+        <div class="docs-pager">
+          <a class="prev"></a>
+          <a class="next" hidden></a>
+        </div>
+      </article>
+    </main>
+  </div>
+</body>
+</html>
