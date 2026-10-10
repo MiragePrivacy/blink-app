@@ -59,6 +59,15 @@ const recentState = {
   hasMore: false,
   loading: false,
 };
+const queryState = {
+  limit: 1000,
+  offset: 0,
+  hasMore: false,
+  loading: false,
+  exporting: false,
+  submittedSql: '',
+  chainId: null,
+};
 
 const chainState = {
   chains,
@@ -1304,6 +1313,7 @@ let lastQueryResult = null;
 function setQueryExportEnabled(enabled) {
   const button = document.getElementById('query-export');
   if (button) button.disabled = !enabled;
+  if (!enabled) setQueryExportMenuOpen(false);
 }
 
 function csvCell(value) {
@@ -1312,29 +1322,102 @@ function csvCell(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-function buildCsv(columns, rows) {
-  const lines = [columns.map(csvCell).join(',')];
-  for (const row of rows) {
-    lines.push(row.map(csvCell).join(','));
-  }
-  return lines.join('\r\n');
+function setQueryExportMenuOpen(open) {
+  const button = document.getElementById('query-export');
+  const options = document.getElementById('query-export-options');
+  if (!button || !options) return;
+  const shouldOpen = Boolean(open) && !button.disabled;
+  options.hidden = !shouldOpen;
+  button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
 }
 
-function exportQueryCsv() {
-  if (!lastQueryResult) return;
-  const cols = lastQueryResult.columns || [];
-  const rows = lastQueryResult.rows || [];
-  if (!cols.length) return;
-  const csv = buildCsv(cols, rows);
-  const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8;' });
+function queryCsvParts(columns, rows) {
+  const parts = ['﻿', columns.map(csvCell).join(',')];
+  if (rows.length) {
+    parts.push('\r\n', rows.map(row => row.map(csvCell).join(',')).join('\r\n'));
+  }
+  return parts;
+}
+
+function downloadQueryCsv(parts, scope) {
+  const blob = new Blob(parts, { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `blink-query-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+  link.download = `blink-query-${scope}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function exportCurrentQueryPage() {
+  if (!lastQueryResult || queryState.loading || queryState.exporting) return;
+  const columns = lastQueryResult.columns || [];
+  const rows = lastQueryResult.rows || [];
+  if (!columns.length || !rows.length) return;
+  setQueryExportMenuOpen(false);
+  downloadQueryCsv(queryCsvParts(columns, rows), 'page');
+  document.getElementById('query-status').textContent = `exported current page · ${fmtFull(rows.length)} rows`;
+}
+
+async function exportAllQueryResults() {
+  if (!lastQueryResult || !queryState.submittedSql || queryState.loading || queryState.exporting) return;
+  const button = document.getElementById('query-export');
+  const label = document.getElementById('query-export-label');
+  const runButton = document.getElementById('query-run');
+  const status = document.getElementById('query-status');
+  const originalLabel = label.textContent;
+  const parts = ['﻿'];
+  let offset = 0;
+  let totalRows = 0;
+  let wroteHeader = false;
+
+  queryState.exporting = true;
+  setQueryExportMenuOpen(false);
+  button.disabled = true;
+  label.textContent = 'Exporting';
+  runButton.disabled = true;
+  updateQueryPager();
+
+  try {
+    while (true) {
+      const data = await postJson('/api/query', {
+        sql: queryState.submittedSql,
+        limit: queryState.limit,
+        offset,
+        chain_id: queryState.chainId,
+      });
+      const columns = data.columns || [];
+      const rows = data.rows || [];
+      if (!wroteHeader) {
+        parts.push(columns.map(csvCell).join(','));
+        wroteHeader = true;
+      }
+      if (rows.length) {
+        parts.push('\r\n', rows.map(row => row.map(csvCell).join(',')).join('\r\n'));
+      }
+      totalRows += rows.length;
+      status.textContent = `exporting ${fmtFull(totalRows)} rows`;
+
+      if (!data.has_more) break;
+      const nextOffset = Number(data.offset || offset) + rows.length;
+      if (!rows.length || nextOffset <= offset) throw new Error('query export pagination did not advance');
+      offset = nextOffset;
+    }
+
+    downloadQueryCsv(parts, 'all');
+    status.textContent = `exported ${fmtFull(totalRows)} rows`;
+  } catch (err) {
+    console.error(err);
+    status.textContent = shortError(err.message);
+  } finally {
+    queryState.exporting = false;
+    label.textContent = originalLabel;
+    runButton.disabled = false;
+    setQueryExportEnabled(Boolean(lastQueryResult?.rows?.length));
+    updateQueryPager();
+  }
 }
 
 function renderQueryResult(data) {
@@ -1344,6 +1427,8 @@ function renderQueryResult(data) {
   const tbody = table.querySelector('tbody');
   const cols = data.columns || [];
   const rows = data.rows || [];
+  const pageCount = document.getElementById('query-export-page-count');
+  if (pageCount) pageCount.textContent = `${fmtFull(rows.length)} displayed rows`;
   setQueryExportEnabled(cols.length > 0 && rows.length > 0);
 
   thead.innerHTML = cols.length
@@ -1363,8 +1448,35 @@ function renderQueryResult(data) {
   }
 }
 
+function updateQueryPager() {
+  const range = document.getElementById('query-range');
+  const prev = document.getElementById('query-prev');
+  const next = document.getElementById('query-next');
+  const rowCount = Number(lastQueryResult?.row_count || 0);
+  const offset = Number(lastQueryResult?.offset || 0);
+
+  if (range) {
+    if (!lastQueryResult) range.textContent = '—';
+    else if (!rowCount) range.textContent = '0 rows';
+    else range.textContent = `${fmtFull(offset + 1)}–${fmtFull(offset + rowCount)}${queryState.hasMore ? '+' : ''}`;
+  }
+  if (prev) prev.disabled = queryState.loading || queryState.exporting || offset === 0;
+  if (next) next.disabled = queryState.loading || queryState.exporting || !queryState.hasMore;
+}
+
+function resetQueryState() {
+  queryState.offset = 0;
+  queryState.hasMore = false;
+  queryState.loading = false;
+  queryState.exporting = false;
+  queryState.submittedSql = '';
+  queryState.chainId = null;
+  updateQueryPager();
+}
+
 function clearQueryResult(message = 'no query results') {
   lastQueryResult = null;
+  resetQueryState();
   setQueryExportEnabled(false);
   const status = document.getElementById('query-status');
   if (status) status.textContent = 'ready';
@@ -1376,29 +1488,52 @@ function clearQueryResult(message = 'no query results') {
   if (tbody) tbody.innerHTML = `<tr><td class="query-empty">${escapeHtml(message)}</td></tr>`;
 }
 
-async function runSqlQuery() {
+async function runSqlQuery(offset = 0, submittedQuery = false) {
   const button = document.getElementById('query-run');
   const status = document.getElementById('query-status');
   const editor = document.getElementById('query-editor');
+  if (queryState.loading || queryState.exporting) return;
+
+  const sql = submittedQuery ? queryState.submittedSql : editor.value;
+  const chainId = submittedQuery ? queryState.chainId : selectedChainId();
+  if (!submittedQuery) {
+    queryState.submittedSql = sql;
+    queryState.chainId = chainId;
+  }
+
+  queryState.loading = true;
   button.disabled = true;
   status.textContent = 'running';
+  updateQueryPager();
   try {
     const data = await postJson('/api/query', {
-      sql: editor.value,
-      limit: 1000,
-      chain_id: selectedChainId(),
+      sql,
+      limit: queryState.limit,
+      offset,
+      chain_id: chainId,
     });
+    queryState.offset = Number(data.offset || 0);
+    queryState.hasMore = Boolean(data.has_more);
     renderQueryResult(data);
-    status.textContent = `${fmtFull(data.row_count)} rows · ${fmtFull(data.elapsed_ms)} ms`;
+    const start = data.row_count ? queryState.offset + 1 : 0;
+    const end = queryState.offset + data.row_count;
+    status.textContent = data.row_count
+      ? `rows ${fmtFull(start)}–${fmtFull(end)} · ${fmtFull(data.elapsed_ms)} ms`
+      : `0 rows · ${fmtFull(data.elapsed_ms)} ms`;
   } catch (err) {
     console.error(err);
     status.textContent = shortError(err.message);
-    lastQueryResult = null;
-    setQueryExportEnabled(false);
-    const tbody = document.querySelector('#query-table tbody');
-    tbody.innerHTML = `<tr><td class="query-empty">${escapeHtml(err.message)}</td></tr>`;
+    if (!submittedQuery) {
+      lastQueryResult = null;
+      queryState.hasMore = false;
+      setQueryExportEnabled(false);
+      const tbody = document.querySelector('#query-table tbody');
+      tbody.innerHTML = `<tr><td class="query-empty">${escapeHtml(err.message)}</td></tr>`;
+    }
   } finally {
+    queryState.loading = false;
     button.disabled = false;
+    updateQueryPager();
   }
 }
 
@@ -2292,7 +2427,33 @@ function attachQueryRunner() {
   const editor = document.getElementById('query-editor');
   button.addEventListener('click', () => runSqlQuery().catch(console.error));
   const exportButton = document.getElementById('query-export');
-  if (exportButton) exportButton.addEventListener('click', exportQueryCsv);
+  const exportMenu = document.getElementById('query-export-menu');
+  if (exportButton) {
+    exportButton.addEventListener('click', event => {
+      event.stopPropagation();
+      const options = document.getElementById('query-export-options');
+      setQueryExportMenuOpen(options?.hidden);
+    });
+  }
+  document.getElementById('query-export-page').addEventListener('click', exportCurrentQueryPage);
+  document.getElementById('query-export-all').addEventListener('click', () => {
+    exportAllQueryResults().catch(console.error);
+  });
+  document.addEventListener('click', event => {
+    if (!exportMenu?.contains(event.target)) setQueryExportMenuOpen(false);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') setQueryExportMenuOpen(false);
+  });
+  document.getElementById('query-prev').addEventListener('click', () => {
+    if (queryState.loading || queryState.offset === 0) return;
+    const offset = Math.max(0, queryState.offset - queryState.limit);
+    runSqlQuery(offset, true).catch(console.error);
+  });
+  document.getElementById('query-next').addEventListener('click', () => {
+    if (queryState.loading || !queryState.hasMore) return;
+    runSqlQuery(queryState.offset + queryState.limit, true).catch(console.error);
+  });
   editor.addEventListener('keydown', event => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
